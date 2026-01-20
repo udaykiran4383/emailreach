@@ -1,0 +1,234 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Slate - Professional Neutral */
+  --background: oklch(0.99 0.003 247);
+  /* Slate 50ish */
+  --foreground: oklch(0.13 0.02 255);
+  /* Slate 900 */
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.13 0.02 255);
+
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.13 0.02 255);
+
+  /* Indigo - Primary Brand */
+  --primary: oklch(0.5 0.23 275);
+  /* Deep Indigo */
+  --primary-foreground: oklch(0.99 0.003 247);
+
+  --secondary: oklch(0.96 0.005 255);
+  /* Slate 100 */
+  --secondary-foreground: oklch(0.13 0.02 255);
+
+  --muted: oklch(0.96 0.005 255);
+  --muted-foreground: oklch(0.45 0.03 255);
+  /* Slate 500 */
+
+  --accent: oklch(0.96 0.005 255);
+  --accent-foreground: oklch(0.13 0.02 255);
+
+  --destructive: oklch(0.58 0.23 28);
+  --destructive-foreground: oklch(0.98 0 0);
+
+  --border: oklch(0.9 0.01 255);
+  /* Slate 200 */
+  --input: oklch(0.9 0.01 255);
+  --ring: oklch(0.5 0.23 275);
+
+  --radius: 0.5rem;
+  /* Tighter radius for professional look */
+
+  --sidebar: oklch(0.98 0.005 255);
+  --sidebar-foreground: oklch(0.13 0.02 255);
+  --sidebar-primary: oklch(0.5 0.23 275);
+  --sidebar-primary-foreground: oklch(0.99 0.003 247);
+  --sidebar-accent: oklch(0.95 0.01 255);
+  --sidebar-accent-foreground: oklch(0.13 0.02 255);
+  --sidebar-border: oklch(0.9 0.01 255);
+  --sidebar-ring: oklch(0.5 0.23 275);
+
+  /* Charts */
+  --chart-1: oklch(0.5 0.23 275);
+  --chart-2: oklch(0.6 0.18 300);
+  --chart-3: oklch(0.4 0.15 250);
+  --chart-4: oklch(0.65 0.2 145);
+  --chart-5: oklch(0.7 0.15 45);
+}
+
+.dark {
+  --background: oklch(0.1 0.01 255);
+  /* Slate 950 */
+  --foreground: oklch(0.98 0.005 255);
+  /* Slate 50 */
+
+  --card: oklch(0.13 0.02 255);
+  /* Slate 900 */
+  --card-foreground: oklch(0.98 0.005 255);
+
+  --popover: oklch(0.13 0.02 255);
+  --popover-foreground: oklch(0.98 0.005 255);
+
+  --primary: oklch(0.6 0.2 275);
+  /* Lighter Indigo for dark mode */
+  --primary-foreground: oklch(0.1 0.01 255);
+
+  --secondary: oklch(0.18 0.02 255);
+  --secondary-foreground: oklch(0.98 0.005 255);
+
+  --muted: oklch(0.18 0.02 255);
+  --muted-foreground: oklch(0.6 0.03 255);
+
+  --accent: oklch(0.18 0.02 255);
+  --accent-foreground: oklch(0.98 0.005 255);
+
+  --destructive: oklch(0.5 0.2 28);
+  --destructive-foreground: oklch(0.98 0.005 255);
+
+  --border: oklch(0.2 0.02 255);
+  --input: oklch(0.2 0.02 255);
+  --ring: oklch(0.6 0.2 275);
+
+  --sidebar: oklch(0.13 0.02 255);
+  --sidebar-foreground: oklch(0.98 0.005 255);
+  --sidebar-primary: oklch(0.6 0.2 275);
+  --sidebar-primary-foreground: oklch(0.1 0.01 255);
+  --sidebar-accent: oklch(0.18 0.02 255);
+  --sidebar-accent-foreground: oklch(0.98 0.005 255);
+  --sidebar-border: oklch(0.2 0.02 255);
+  --sidebar-ring: oklch(0.6 0.2 275);
+}
+
+@theme inline {
+  --font-sans: 'Inter', 'system-ui', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: calc(var(--radius));
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 6px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+}
+
+/* Professional Utilities */
+.glass-effect {
+  @apply bg-white/80 backdrop-blur-md border border-white/20 shadow-sm;
+
+  .dark & {
+    @apply bg-slate-900/80 border-slate-700/30;
+  }
+}
+
+.card-hover {
+  @apply transition-all duration-200 hover:shadow-md hover:border-primary/20;
+}
+
+/* Clean Badge Styles */
+.badge-clean {
+  @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground;
+}
+
+.badge-success {
+  @apply bg-emerald-50 text-emerald-700 border border-emerald-200;
+
+  .dark & {
+    @apply bg-emerald-900/30 text-emerald-400 border-emerald-800;
+  }
+}
+
+.badge-warning {
+  @apply bg-amber-50 text-amber-700 border border-amber-200;
+
+  .dark & {
+    @apply bg-amber-900/30 text-amber-400 border-amber-800;
+  }
+}
+
+.badge-info {
+  @apply bg-sky-50 text-sky-700 border border-sky-200;
+
+  .dark & {
+    @apply bg-sky-900/30 text-sky-400 border-sky-800;
+  }
+}
+
+.badge-primary {
+  @apply bg-indigo-50 text-indigo-700 border border-indigo-200;
+
+  .dark & {
+    @apply bg-indigo-900/30 text-indigo-400 border-indigo-800;
+  }
+}
+
+/* Gradient Backgrounds */
+.gradient-primary {
+  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+}
+
+/* Skeleton Loading */
+.skeleton {
+  @apply bg-muted animate-pulse;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
