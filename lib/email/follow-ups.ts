@@ -75,6 +75,26 @@ export async function sendFollowUpEmails(campaignId: string, client?: any) {
 
   for (const recipient of recipients || []) {
     try {
+      // Check if email is blocked (previously bounced)
+      const { data: blocked } = await supabase
+        .from('blocked_emails')
+        .select('reason')
+        .eq('email', recipient.email.toLowerCase().trim())
+        .single()
+
+      if (blocked) {
+        console.log(`Skipping blocked email for follow-up: ${recipient.email} (${blocked.reason})`)
+        // Mark as failed to prevent future follow-up attempts
+        await supabase
+          .from('email_recipients')
+          .update({
+            status: 'failed',
+            error_message: `Blocked: ${blocked.reason}`,
+          })
+          .eq('id', recipient.id)
+        continue
+      }
+
       // Personalize follow-up email
       const variables = {
         name: recipient.name,

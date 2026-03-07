@@ -1,37 +1,62 @@
 import { getSupabaseServerClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import { getUser } from '@/lib/auth/actions'
 
 export async function GET() {
     const supabase = await getSupabaseServerClient()
+    const user = await getUser()
+
+    // Get unique user_ids from campaigns
+    const { data: campaigns, error: campaignsError } = await supabase
+        .from('campaigns')
+        .select('id, name, user_id')
+        .limit(20)
 
     // Get all recipients
-    const { data: recipients, error } = await supabase
+    const { data: recipients, error: recipientsError } = await supabase
         .from('email_recipients')
         .select('id, email, name, status, gmail_thread_id, gmail_message_id, replied_at')
         .limit(20)
 
-    if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    const summary = {
-        total: recipients.length,
-        withThreadId: recipients.filter(r => r.gmail_thread_id).length,
-        statusCounts: {
-            pending: recipients.filter(r => r.status === 'pending').length,
-            sent: recipients.filter(r => r.status === 'sent').length,
-            replied: recipients.filter(r => r.status === 'replied').length,
-            failed: recipients.filter(r => r.status === 'failed').length,
+    const response = {
+        authenticatedUser: {
+            id: user?.id || 'NOT LOGGED IN',
+            email: user?.email || 'N/A',
         },
-        recipients: recipients.map(r => ({
-            email: r.email,
-            name: r.name,
-            status: r.status,
-            hasThreadId: !!r.gmail_thread_id,
-            threadId: r.gmail_thread_id,
-            repliedAt: r.replied_at,
-        }))
+        campaigns: {
+            error: campaignsError?.message,
+            count: campaigns?.length || 0,
+            uniqueUserIds: [...new Set(campaigns?.map(c => c.user_id) || [])],
+            items: campaigns?.slice(0, 5).map(c => ({
+                id: c.id,
+                name: c.name,
+                user_id: c.user_id,
+                matchesCurrentUser: c.user_id === user?.id,
+            })) || [],
+        },
+        recipients: {
+            error: recipientsError?.message,
+            count: recipients?.length || 0,
+            statusCounts: {
+                pending: recipients?.filter(r => r.status === 'pending').length || 0,
+                sent: recipients?.filter(r => r.status === 'sent').length || 0,
+                replied: recipients?.filter(r => r.status === 'replied').length || 0,
+                failed: recipients?.filter(r => r.status === 'failed').length || 0,
+            },
+        },
+        diagnosis: '',
     }
 
-    return NextResponse.json(summary)
+    // Provide diagnosis
+    if (!user) {
+        response.diagnosis = 'You are not logged in. Please log in first.'
+    } else if (campaigns && campaigns.length > 0 && !campaigns.some(c => c.user_id === user.id)) {
+        response.diagnosis = `USER ID MISMATCH: Your current user_id is "${user.id}", but your campaigns have different user_ids: [${response.campaigns.uniqueUserIds.join(', ')}]. You need to update the user_id in Supabase.`
+    } else if (!campaigns || campaigns.length === 0) {
+        response.diagnosis = 'No campaigns found in database.'
+    } else {
+        response.diagnosis = 'User ID matches. Data should be visible.'
+    }
+
+    return NextResponse.json(response)
 }

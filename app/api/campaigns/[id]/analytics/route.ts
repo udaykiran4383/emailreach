@@ -27,21 +27,52 @@ export async function GET(
   }
 
   // Get email recipients for this campaign
-  const { data: recipients, error: recipientsError } = await supabase
+  // Get email recipients for this campaign
+  // Try fetching with replies first (assuming migration ran)
+  let { data: recipients, error: recipientsError } = await supabase
     .from('email_recipients')
-    .select('*')
+    .select('*, email_replies(*)') // Fetch related replies
     .eq('campaign_id', id)
-    .neq('status', 'pending') // Only show processed ones
-    .order('updated_at', { ascending: false })
+    .order('created_at', { ascending: false })
 
   if (recipientsError) {
-    return NextResponse.json({ error: recipientsError.message }, { status: 500 })
+    // Fallback: If table missing, fetch just recipients
+    // console.warn('Deep fetch failed (likely missing migration), falling back:', recipientsError.message)
+    const { data: recipientsFallback, error: fallbackError } = await supabase
+      .from('email_recipients')
+      .select('*')
+      .eq('campaign_id', id)
+      .order('created_at', { ascending: false })
+
+    if (fallbackError) {
+      return NextResponse.json({ error: fallbackError.message }, { status: 500 })
+    }
+    recipients = recipientsFallback
   }
 
   // Calculate metrics
-  const totalSent = recipients?.filter((r) => r.status === 'sent' || r.status === 'replied').length || 0
-  const totalFailed = recipients?.filter((r) => r.status === 'failed').length || 0
-  const totalReplies = recipients?.filter((r) => r.status === 'replied').length || 0
+  const allRecipients = recipients || []
+
+  // Skipped emails (blocked/invalid validation)
+  const skippedRecipients = allRecipients.filter(r =>
+    r.error_message?.startsWith('Skipped') ||
+    r.error_message?.startsWith('Blocked') ||
+    r.status === 'skipped'
+  )
+  const totalSkipped = skippedRecipients.length
+
+  // Active recipients (not skipped)
+  const activeRecipients = allRecipients.filter(r =>
+    !r.error_message?.startsWith('Skipped') &&
+    !r.error_message?.startsWith('Blocked') &&
+    r.status !== 'skipped'
+  )
+
+  const totalSent = activeRecipients.filter((r) => r.status === 'sent' || r.status === 'replied').length
+  const totalFailed = activeRecipients.filter((r) => r.status === 'failed').length
+  const totalReplies = activeRecipients.filter((r) => r.status === 'replied').length
+  const totalPending = activeRecipients.filter((r) => r.status === 'pending').length
+  const totalUncertain = activeRecipients.filter((r) => r.status === 'uncertain').length
 
   // Calculate rates
   const openRate = totalSent > 0 ? (totalReplies / totalSent) * 100 : 0
@@ -51,16 +82,30 @@ export async function GET(
     totalSent,
     totalFailed,
     totalReplies,
+    totalPending,
+    totalSkipped,
+    totalUncertain,
     openRate: openRate.toFixed(1),
     failureRate: failureRate.toFixed(1),
-    logs: recipients?.map((r) => ({
+    logs: activeRecipients.map((r) => ({
       id: r.id,
       email: r.email,
       name: r.name,
-      status: r.status === 'replied' ? 'sent' : r.status, // If replied, it was sent. UI handles 'replied' column separately?
-      sentAt: r.sent_at || r.updated_at,
+      status: r.status === 'replied' ? 'sent' : r.status,
+      sentAt: r.sent_at || r.created_at,
       replied: r.status === 'replied',
-      replyContent: null, // We don't store reply content in recipients yet
+      replyContent: r.reply_snippet || null,
+      replyFrom: r.reply_from || null,
+      replyTimestamp: r.reply_timestamp || null,
+      // @ts-ignore
+      replies: r.email_replies || []
+    })),
+    skippedLogs: skippedRecipients.map((r) => ({
+      id: r.id,
+      email: r.email,
+      name: r.name,
+      reason: r.error_message || 'Skipped',
     })),
   })
 }
+

@@ -11,18 +11,18 @@ import {
   CheckCircle2,
   Clock,
   Loader2,
-  FileText,
-  ChevronRight,
-  MoreVertical
+  MoreVertical,
+  Activity
 } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator
 } from "@/components/ui/dropdown-menu"
-import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Progress } from "@/components/ui/progress"
 
 interface Campaign {
   id: string
@@ -36,28 +36,28 @@ interface Campaign {
 
 const statusConfig = {
   draft: {
-    variant: 'secondary' as const,
-    icon: FileText,
+    icon: Pencil,
     label: 'Draft',
-    className: 'bg-slate-100 text-slate-700 hover:bg-slate-100/80',
+    className: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+    pulse: false
   },
   scheduled: {
-    variant: 'default' as const,
     icon: Clock,
     label: 'Scheduled',
-    className: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-100/80 border-indigo-200',
+    className: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
+    pulse: false
   },
   sending: {
-    variant: 'default' as const,
     icon: Loader2,
     label: 'Sending',
-    className: 'bg-amber-100 text-amber-700 hover:bg-amber-100/80 border-amber-200',
+    className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+    pulse: true
   },
   sent: {
-    variant: 'outline' as const,
     icon: CheckCircle2,
-    label: 'Sent',
-    className: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-50/80',
+    label: 'Completed',
+    className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+    pulse: false
   },
 }
 
@@ -69,41 +69,61 @@ export default function CampaignList({
   onDelete: (id: string) => void
 }) {
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-      {campaigns.map((campaign, index) => {
+    <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+      {campaigns.map((campaign) => {
         const status = statusConfig[campaign.status] || statusConfig.draft
         const StatusIcon = status.icon
 
+        // Calculate progress
+        const total = campaign.recipients_count || 0
+        const sent = campaign.sent_count || 0
+        const progress = total > 0 ? (sent / total) * 100 : 0
+
         return (
-          <Card key={campaign.id} className="group transition-all duration-200 hover:shadow-md border-border/60">
-            <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2 pt-5 px-5">
-              <div className="flex flex-col gap-1.5 min-w-0 pr-4">
-                <Link href={`/dashboard/campaigns/${campaign.id}`} className="block">
-                  <h3 className="font-semibold leading-none tracking-tight truncate hover:text-primary transition-colors">
+          <div
+            key={campaign.id}
+            className="group glass-card rounded-xl p-5 relative overflow-hidden flex flex-col justify-between"
+          >
+            {/* Header */}
+            <div className="flex justify-between items-start mb-4">
+              <div className="space-y-1 min-w-0 pr-2">
+                <Link href={`/dashboard/campaigns/${campaign.id}`} className="block focus:outline-none">
+                  <h3 className="font-bold text-lg leading-tight truncate text-foreground group-hover:text-primary transition-colors">
                     {campaign.name}
                   </h3>
                 </Link>
-                <Badge variant="outline" className={`w-fit gap-1 font-normal ${status.className}`}>
-                  <StatusIcon className={`h-3 w-3 ${campaign.status === 'sending' ? 'animate-spin' : ''}`} />
-                  {status.label}
-                </Badge>
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Calendar className="w-3 h-3" />
+                  {new Date(campaign.created_at).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric'
+                  })}
+                </p>
               </div>
+
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 -mt-1 -mr-2 text-muted-foreground">
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:bg-muted/50 rounded-full">
                     <MoreVertical className="h-4 w-4" />
-                    <span className="sr-only">Open menu</span>
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+                <DropdownMenuContent align="end" className="w-40">
                   <Link href={`/dashboard/campaigns/${campaign.id}`}>
-                    <DropdownMenuItem>
-                      <Pencil className="mr-2 h-4 w-4" />
-                      Edit Campaign
+                    <DropdownMenuItem className="cursor-pointer">
+                      <Activity className="mr-2 h-4 w-4" />
+                      View Analytics
                     </DropdownMenuItem>
                   </Link>
+                  <Link href={`/dashboard/campaigns/${campaign.id}`}>
+                    <DropdownMenuItem className="cursor-pointer">
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Edit Details
+                    </DropdownMenuItem>
+                  </Link>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    className="text-destructive focus:text-destructive"
+                    className="text-destructive focus:text-destructive cursor-pointer"
                     onClick={() => onDelete(campaign.id)}
                   >
                     <Trash2 className="mr-2 h-4 w-4" />
@@ -111,34 +131,50 @@ export default function CampaignList({
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-            </CardHeader>
-            <CardContent className="px-5 py-2">
-              <p className="text-sm text-muted-foreground line-clamp-2 min-h-[2.5rem]">
-                <span className="font-medium text-foreground/80 mr-1">Subject:</span> {campaign.subject_template}
-              </p>
-            </CardContent>
-            <CardFooter className="px-5 pb-5 pt-4 text-xs text-muted-foreground border-t bg-muted/20 flex items-center justify-between mt-2">
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-1.5" title="Recipients">
-                  <Users className="h-3.5 w-3.5" />
-                  <span>{campaign.recipients_count}</span>
+            </div>
+
+            {/* Content Middle */}
+            <div className="space-y-4 mb-4">
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" className={`font-medium border-0 px-2.5 py-0.5 rounded-full ${status.className} ${status.pulse ? 'animate-pulse' : ''}`}>
+                  <StatusIcon className={`h-3 w-3 mr-1.5 ${campaign.status === 'sending' ? 'animate-spin' : ''}`} />
+                  {status.label}
+                </Badge>
+              </div>
+
+              {/* Progress Bar (Visual Sparkline) */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Progress</span>
+                  <span className="font-medium text-foreground">{Math.round(progress)}%</span>
                 </div>
-                <div className="flex items-center gap-1.5" title="Sent Emails">
-                  <Send className="h-3.5 w-3.5" />
-                  <span>{campaign.sent_count}</span>
+                <Progress value={progress} className="h-1.5 bg-muted" />
+                <div className="flex justify-between text-[10px] text-muted-foreground pt-1">
+                  <span>{sent} sent</span>
+                  <span>{total} total</span>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5">
-                <Calendar className="h-3.5 w-3.5" />
-                <span>
-                  {new Date(campaign.created_at).toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                  })}
+            </div>
+
+            {/* Footer / Actions */}
+            <div className="pt-4 border-t border-border/40 flex justify-between items-center text-xs text-muted-foreground mt-auto">
+              <div className="flex items-center gap-1.5 overflow-hidden">
+                <span className="truncate max-w-[150px] italic opacity-80">
+                  {campaign.subject_template || 'No subject'}
                 </span>
               </div>
-            </CardFooter>
-          </Card>
+
+              <Link
+                href={`/dashboard/campaigns/${campaign.id}`}
+                className="text-primary font-medium hover:underline flex items-center"
+              >
+                Details
+              </Link>
+            </div>
+
+            {/* Hover Decorator */}
+            <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full blur-2xl -mr-12 -mt-12 group-hover:bg-primary/10 transition-colors duration-500" />
+          </div>
         )
       })}
     </div>

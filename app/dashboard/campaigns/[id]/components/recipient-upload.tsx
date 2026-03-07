@@ -268,40 +268,42 @@ export default function RecipientUpload({ campaignId, lastSync }: { campaignId: 
                   </td>
                 </tr>
               ) : (
-                recipients.map((recipient, index) => (
-                  <tr key={recipient.id || index} className="border-b border-border hover:bg-muted/30 transition-colors">
-                    <td className="px-6 py-4">{getStatusBadge(recipient.status, recipient.error_message)}</td>
-                    <td className="px-6 py-4">
-                      {recipient.status === 'replied' ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          <CheckCircle2 className="w-3 h-3" />
-                          Yes
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                          <XCircle className="w-3 h-3" />
-                          No
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      {recipient.follow_up_sent ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          <CheckCircle2 className="w-3 h-3" />
-                          Yes
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-                          <Clock className="w-3 h-3" />
-                          No
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-sm font-medium text-foreground">{recipient.name || '—'}</td>
-                    <td className="px-6 py-4 text-sm text-foreground">{recipient.email}</td>
-                    <td className="px-6 py-4 text-sm text-muted-foreground">{recipient.company || '—'}</td>
-                  </tr>
-                ))
+                recipients
+                  .filter(r => !r.error_message?.startsWith('Skipped'))
+                  .map((recipient, index) => (
+                    <tr key={recipient.id || index} className="border-b border-border hover:bg-muted/30 transition-colors">
+                      <td className="px-6 py-4">{getStatusBadge(recipient.status, recipient.error_message)}</td>
+                      <td className="px-6 py-4">
+                        {recipient.status === 'replied' ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            <CheckCircle2 className="w-3 h-3" />
+                            Yes
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                            <XCircle className="w-3 h-3" />
+                            No
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        {recipient.follow_up_sent ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            <CheckCircle2 className="w-3 h-3" />
+                            Yes
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                            <Clock className="w-3 h-3" />
+                            No
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-medium text-foreground">{recipient.name || '—'}</td>
+                      <td className="px-6 py-4 text-sm text-foreground">{recipient.email}</td>
+                      <td className="px-6 py-4 text-sm text-muted-foreground">{recipient.company || '—'}</td>
+                    </tr>
+                  ))
               )}
             </tbody>
           </table>

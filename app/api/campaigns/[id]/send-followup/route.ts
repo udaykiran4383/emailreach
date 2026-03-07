@@ -1,9 +1,10 @@
 import { getSupabaseServerClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { sendEmailViaGmail } from '@/lib/email/sender'
-import fs from 'fs'
-import path from 'path'
+import { downloadResume } from '@/lib/storage/resume'
 import { getUser } from '@/lib/auth/actions'
+
+// Sender email comes from Gmail credentials
 
 export async function POST(
     request: Request,
@@ -66,17 +67,16 @@ export async function POST(
     const attachments = []
     if (campaign.resume_storage_path) {
         try {
-            const resumePath = campaign.resume_storage_path
-            if (fs.existsSync(resumePath)) {
-                const fileContent = fs.readFileSync(resumePath)
+            const resume = await downloadResume(campaign.resume_storage_path)
+            if (resume) {
                 attachments.push({
-                    filename: path.basename(resumePath),
-                    content: fileContent,
+                    filename: resume.filename,
+                    content: resume.content,
                     contentType: 'application/pdf',
                 })
             }
         } catch (err) {
-            console.error('Error reading resume file:', err)
+            console.error('Error downloading resume:', err)
         }
     }
 
@@ -101,13 +101,16 @@ export async function POST(
                 attachments: attachments.length > 0 ? attachments : undefined,
             }
 
+            // Use sender email from Gmail credentials
+            const senderEmail = gmailCredential.email_address
+
             const result = await sendEmailViaGmail(
                 {
                     access_token: gmailCredential.access_token,
                     refresh_token: gmailCredential.refresh_token,
                     expires_at: gmailCredential.expires_at,
                 },
-                gmailCredential.email_address,
+                senderEmail,
                 {
                     email: recipient.email,
                     name: recipient.name,

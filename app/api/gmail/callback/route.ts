@@ -3,6 +3,13 @@ import { getSupabaseServerClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { getUser } from '@/lib/auth/actions'
 
+function getRedirectUri() {
+  if (process.env.GMAIL_REDIRECT_URI) return process.env.GMAIL_REDIRECT_URI
+  if (process.env.NEXT_PUBLIC_SITE_URL) return `${process.env.NEXT_PUBLIC_SITE_URL}/api/gmail/callback`
+  if (process.env.URL) return `${process.env.URL}/api/gmail/callback`
+  return 'http://localhost:3000/api/gmail/callback'
+}
+
 export async function GET(request: Request) {
   const user = await getUser()
   if (!user) {
@@ -31,7 +38,7 @@ export async function GET(request: Request) {
     const oauth2Client = new google.auth.OAuth2(
       process.env.GMAIL_CLIENT_ID,
       process.env.GMAIL_CLIENT_SECRET,
-      `${process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'}/api/gmail/callback`
+      getRedirectUri()
     )
 
     const { tokens } = await oauth2Client.getToken(code)

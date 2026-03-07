@@ -1,14 +1,18 @@
 import DashboardClient from './dashboard-client'
+import { getUser } from '@/lib/auth/actions'
+import { redirect } from 'next/navigation'
 
 export default async function DashboardPage() {
-  // Personal job application tool - no auth needed
-  // Hardcoded user info for direct access
-  const userId = 'personal-user'
-  const userEmail = 'udayyennampelly0@gmail.com'
+  // Fetch real authenticated user
+  const user = await getUser()
+
+  if (!user) {
+    redirect('/auth/login')
+  }
 
   return (
     <div className="min-h-screen bg-background">
-      <DashboardClient userId={userId} userEmail={userEmail} />
+      <DashboardClient userId={user.id} userEmail={user.email} />
     </div>
   )
 }
