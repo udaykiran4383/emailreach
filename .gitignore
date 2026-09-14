@@ -34,3 +34,8 @@ next-env.d.ts
 
 # CSV files
 *.csv
+
+# never commit recipient lists or macOS junk
+batch*.csv
+test_recipients.csv
+.DS_Store
