@@ -1,14 +1,12 @@
 import { getSupabaseServerClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
-import { getUser } from '@/lib/auth/actions'
+import { guardDebugRoute } from '@/lib/debug-guard'
 
 // ONE-TIME migration endpoint to update 'personal-user' data to the authenticated user's ID
 async function runMigration() {
-    const user = await getUser()
-
-    if (!user) {
-        return NextResponse.json({ error: 'You must be logged in to run this migration' }, { status: 401 })
-    }
+    const guard = await guardDebugRoute()
+    if (!guard.ok) return guard.response
+    const user = guard.user
 
     const supabase = await getSupabaseServerClient()
     const results = {
@@ -79,11 +77,7 @@ async function runMigration() {
     })
 }
 
-// Support both GET and POST requests
-export async function GET() {
-    return runMigration()
-}
-
+// POST only: a GET (link prefetch, image tag) must never rewrite ownership
 export async function POST() {
     return runMigration()
 }

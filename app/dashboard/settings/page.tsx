@@ -1,4 +1,6 @@
 import GmailSettings from './gmail-settings'
+import SendingSettings from './sending-settings'
+import ApiTokens from './api-tokens'
 import { getUser } from '@/lib/auth/actions'
 import { redirect } from 'next/navigation'
 
@@ -14,6 +16,8 @@ export default async function SettingsPage() {
       <div className="max-w-2xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
         <h1 className="text-2xl font-bold text-foreground mb-8">Gmail Settings</h1>
         <GmailSettings userId={user.id} />
+        <SendingSettings />
+        <ApiTokens />
       </div>
     </div>
   )

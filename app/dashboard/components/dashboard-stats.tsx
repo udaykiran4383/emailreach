@@ -1,64 +1,66 @@
 import {
-    Users,
     Send,
     MessageSquare,
+    MailOpen,
     TrendingUp
 } from 'lucide-react'
+import type { DashboardSummary } from './home/types'
 
-export function DashboardStats({ campaigns }: { campaigns: any[] }) {
-    // fast aggregation
-    const totalSent = campaigns.reduce((acc, curr) => acc + (curr.sent_count || 0), 0)
-    const totalRecipients = campaigns.reduce((acc, curr) => acc + (curr.recipients_count || 0), 0)
-    const activeCampaigns = campaigns.filter(c => c.status === 'scheduled' || c.status === 'sending').length
-
+export function DashboardStats({
+    totals,
+    activeCampaigns,
+}: {
+    totals: DashboardSummary['totals']
+    activeCampaigns: number
+}) {
     const stats = [
         {
-            label: 'Total Sent',
-            value: totalSent.toLocaleString(),
+            label: 'Sent',
+            value: totals.sent30.toLocaleString(),
             subValue: 'Last 30 days',
             icon: Send,
             color: 'text-blue-600',
             bg: 'bg-blue-50 dark:bg-blue-900/20'
         },
         {
-            label: 'Active Campaigns',
-            value: activeCampaigns.toString(),
-            subValue: 'Currently running',
-            icon: TrendingUp,
-            color: 'text-violet-600',
-            bg: 'bg-violet-50 dark:bg-violet-900/20'
-        },
-        {
-            label: 'Total Recipients',
-            value: totalRecipients.toLocaleString(),
-            subValue: 'Across all lists',
-            icon: Users,
+            label: 'Reply Rate',
+            value: totals.replyRate === null ? '—' : `${totals.replyRate}%`,
+            subValue: `${totals.replied30} replies in 30 days`,
+            icon: MessageSquare,
             color: 'text-emerald-600',
             bg: 'bg-emerald-50 dark:bg-emerald-900/20'
         },
         {
-            label: 'Avg. Reply Rate',
-            value: '~12%', // Placeholder until global analytics API
-            subValue: '+2.4% vs last month',
-            icon: MessageSquare,
+            label: 'Open Rate',
+            value: totals.openRate === null ? '—' : `${totals.openRate}%`,
+            subValue: 'Approximate, tracked campaigns only',
+            icon: MailOpen,
             color: 'text-amber-600',
             bg: 'bg-amber-50 dark:bg-amber-900/20'
-        }
+        },
+        {
+            label: 'Active Campaigns',
+            value: activeCampaigns.toString(),
+            subValue: `${totals.campaigns} total · ${totals.recipients.toLocaleString()} recipients`,
+            icon: TrendingUp,
+            color: 'text-violet-600',
+            bg: 'bg-violet-50 dark:bg-violet-900/20'
+        },
     ]
 
     return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            {stats.map((stat, i) => {
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {stats.map((stat) => {
                 const Icon = stat.icon
                 return (
                     <div
-                        key={i}
+                        key={stat.label}
                         className="glass-card p-6 rounded-2xl border border-border/50 relative overflow-hidden group"
                     >
                         <div className="flex items-start justify-between">
                             <div>
                                 <p className="text-sm font-medium text-muted-foreground">{stat.label}</p>
-                                <h3 className="text-2xl font-bold mt-2 text-foreground tracking-tight">{stat.value}</h3>
+                                <h3 className="text-2xl font-bold mt-2 text-foreground tracking-tight tabular-nums">{stat.value}</h3>
                                 <p className="text-xs text-muted-foreground mt-1">{stat.subValue}</p>
                             </div>
                             <div className={`p-3 rounded-xl ${stat.bg} transition-transform duration-300 group-hover:scale-110`}>

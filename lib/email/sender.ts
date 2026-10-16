@@ -2,8 +2,9 @@ import { google } from 'googleapis'
 import nodemailer from 'nodemailer'
 import fs from 'fs'
 import path from 'path'
-import { verifyEmailDNS } from './verifier'
+import { verifyEmail } from './verifier'
 import { createClient } from '@supabase/supabase-js'
+import { buildTemplateValues, renderTemplate } from './template-vars'
 
 // Rate limiting utilities
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
@@ -133,6 +134,7 @@ interface Recipient {
   email: string
   name?: string
   company?: string
+  variables?: Record<string, unknown> | null
 }
 
 // Result type for sendEmailViaGmail
@@ -140,6 +142,7 @@ export interface SendEmailResult {
   success: boolean
   messageId?: string
   threadId?: string
+  rfcMessageId?: string // RFC 822 Message-ID header, used to thread follow-ups
   error?: string
   isBlocking?: boolean // True if error should stop campaign (e.g., daily limit)
   rateLimitInfo?: { attempt: number; maxAttempts: number; waitSeconds: number }
@@ -162,35 +165,28 @@ interface EmailContent {
   references?: string
   threadId?: string
   attachments?: Attachment[]
+  trackingPixelUrl?: string // Open-tracking image, appended to the HTML part only
 }
 
 export async function personalizeEmail(
   content: EmailContent,
   recipient: Recipient
 ): Promise<EmailContent> {
-  let subject = content.subject
-  let body = content.body
-
-  // Replace placeholders
-  const placeholders = {
-    '{{name}}': recipient.name || recipient.email.split('@')[0],
-    '{{email}}': recipient.email,
-    '{{company}}': recipient.company || 'there',
+  // {{name}}, {{first_name}}, {{email}}, {{company}} plus every key of recipient.variables
+  // ({{job_title}}, {{opener}} ...). Unknown variables render as '' — never literal braces.
+  const values = buildTemplateValues(recipient)
+  return {
+    ...content,
+    subject: renderTemplate(content.subject, values, { singleLine: true }),
+    body: renderTemplate(content.body, values),
   }
-
-  Object.entries(placeholders).forEach(([placeholder, value]) => {
-    subject = subject.replace(new RegExp(placeholder, 'g'), value)
-    body = body.replace(new RegExp(placeholder, 'g'), value)
-  })
-
-  return { ...content, subject, body }
 }
 
 /**
  * Converts plain text email body to professional HTML email.
  * Handles bullet points, paragraphs, and proper spacing.
  */
-export function generateProfessionalHtmlEmail(plainTextBody: string, senderName: string = ''): string {
+export function generateProfessionalHtmlEmail(plainTextBody: string, senderName: string = '', trackingPixelUrl?: string): string {
   const lines = plainTextBody.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
 
   let html = ''
@@ -199,7 +195,7 @@ export function generateProfessionalHtmlEmail(plainTextBody: string, senderName:
 
   const flushParagraph = () => {
     if (currentParagraph.trim()) {
-      html += `<p style="margin: 0 0 16px 0; line-height: 1.6;">${currentParagraph.trim()}</p>\n`
+      html += `<p style="margin: 0 0 18px 0; line-height: 1.6;">${currentParagraph.trim()}</p>\n`
       currentParagraph = ''
     }
   }
@@ -207,7 +203,7 @@ export function generateProfessionalHtmlEmail(plainTextBody: string, senderName:
   const startList = () => {
     if (!inList) {
       flushParagraph()
-      html += '<ul style="margin: 0 0 16px 0; padding-left: 24px; line-height: 1.6;">\n'
+      html += '<ul style="margin: 0 0 18px 0; padding-left: 24px; line-height: 1.6;">\n'
       inList = true
     }
   }
@@ -226,7 +222,7 @@ export function generateProfessionalHtmlEmail(plainTextBody: string, senderName:
     const bulletMatch = trimmedLine.match(/^[\*\-•]\s*(.+)$/)
     if (bulletMatch) {
       startList()
-      html += `  <li style="margin-bottom: 6px;">${bulletMatch[1]}</li>\n`
+      html += `  <li style="margin-bottom: 10px;">${bulletMatch[1]}</li>\n`
       continue
     }
 
@@ -239,8 +235,9 @@ export function generateProfessionalHtmlEmail(plainTextBody: string, senderName:
 
     // Regular text line
     endList()
+    // A single line break (signature, address block) stays a line break
     if (currentParagraph) {
-      currentParagraph += ' ' + trimmedLine
+      currentParagraph += '<br>\n' + trimmedLine
     } else {
       currentParagraph = trimmedLine
     }
@@ -249,6 +246,10 @@ export function generateProfessionalHtmlEmail(plainTextBody: string, senderName:
   // Flush any remaining content
   endList()
   flushParagraph()
+
+  if (trackingPixelUrl) {
+    html += `<img src="${trackingPixelUrl}" width="1" height="1" alt="" style="width:1px;height:1px;border:0">\n`
+  }
 
   // Wrap in a clean email container
   return `
@@ -312,7 +313,7 @@ export async function sendEmailViaGmail(
 
   // Verify email DNS before sending (skip if already pre-verified)
   if (!skipVerification) {
-    const verificationResult = await verifyEmailDNS(recipient.email)
+    const verificationResult = await verifyEmail(recipient.email)
     if (verificationResult.status !== 'safe') {
       console.warn(`Skipping email to ${recipient.email}: ${verificationResult.reason}`)
       return {
@@ -349,7 +350,7 @@ export async function sendEmailViaGmail(
       to: recipient.email,
       subject: personalizedEmail.subject,
       text: personalizedEmail.body, // Plain text fallback
-      html: generateProfessionalHtmlEmail(personalizedEmail.body, senderName),
+      html: generateProfessionalHtmlEmail(personalizedEmail.body, senderName, personalizedEmail.trackingPixelUrl),
       attachments: finalAttachments,
     }
 
@@ -388,10 +389,27 @@ export async function sendEmailViaGmail(
       }
     )
 
+    // Read back the Message-ID Gmail assigned, so follow-ups thread in the recipient's inbox
+    let rfcMessageId: string | undefined
+    if (response.data.id) {
+      try {
+        const sent = await gmail.users.messages.get({
+          userId: 'me',
+          id: response.data.id,
+          format: 'metadata',
+          metadataHeaders: ['Message-ID'],
+        })
+        rfcMessageId = sent.data.payload?.headers?.find(h => h.name?.toLowerCase() === 'message-id')?.value ?? undefined
+      } catch (err) {
+        console.warn('Could not read Message-ID of sent email:', err)
+      }
+    }
+
     return {
       success: true,
       messageId: response.data.id ?? undefined,
       threadId: response.data.threadId ?? undefined,
+      rfcMessageId,
       timestamp: new Date().toISOString(),
       rateLimitInfo: rateLimitInfo ?? undefined, // Include if any retries happened
     }
@@ -425,7 +443,7 @@ export async function sendEmailViaSMTP(
     password: string
   },
   from: string,
-  recipient: { email: string; name?: string; company?: string },
+  recipient: Recipient,
   email: { subject: string; body: string; inReplyTo?: string; references?: string; attachments?: any[] }
 ) {
   const transporter = nodemailer.createTransport({
@@ -449,8 +467,8 @@ export async function sendEmailViaSMTP(
     }
   }
 
-  // Verify email DNS before sending
-  const verificationResult = await verifyEmailDNS(recipient.email)
+  // Verify email before sending
+  const verificationResult = await verifyEmail(recipient.email)
   if (verificationResult.status !== 'safe') {
     console.warn(`Skipping email to ${recipient.email}: ${verificationResult.reason}`)
     return {

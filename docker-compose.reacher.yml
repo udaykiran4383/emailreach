@@ -1,0 +1,15 @@
+# Reacher (https://github.com/reacherhq/check-if-email-exists) — open-source,
+# self-hosted mailbox verification. Runs as a separate service; EmailReach calls
+# its HTTP API, no Reacher code is bundled into this app.
+#
+#   docker compose -f docker-compose.reacher.yml up -d
+#   then set REACHER_URL=http://localhost:8080 in .env.local
+#
+# Reacher needs OUTBOUND PORT 25. Most home ISPs and serverless hosts block it,
+# so run this on a VPS that allows port 25 (check with: nc -vz gmail-smtp-in.l.google.com 25).
+services:
+  reacher:
+    image: reacherhq/backend:latest
+    ports:
+      - "8080:8080"
+    restart: unless-stopped

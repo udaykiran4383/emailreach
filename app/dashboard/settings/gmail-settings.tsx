@@ -5,16 +5,21 @@ import { Button } from '@/components/ui/button'
 
 interface GmailCredential {
   id: string
-  email: string
+  email_address: string
   created_at: string
 }
 
 export default function GmailSettings({ userId }: { userId: string }) {
   const [credentials, setCredentials] = useState<GmailCredential[]>([])
   const [loading, setLoading] = useState(true)
+  const [needsCleanupScope, setNeedsCleanupScope] = useState(false)
 
   useEffect(() => {
     fetchCredentials()
+    fetch('/api/gmail/cleanup/scan')
+      .then((r) => r.json())
+      .then((d) => setNeedsCleanupScope(d.connected === true && d.hasModifyScope === false))
+      .catch(() => {})
   }, [])
 
   const fetchCredentials = async () => {
@@ -70,13 +75,21 @@ export default function GmailSettings({ userId }: { userId: string }) {
           </div>
         ) : (
           <div className="space-y-4">
+            {needsCleanupScope && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900">
+                <p className="text-sm text-amber-800 dark:text-amber-200">
+                  Reconnect to enable Inbox Cleanup (it needs permission to move mail to Trash).
+                </p>
+                <Button size="sm" onClick={handleConnect}>Reconnect</Button>
+              </div>
+            )}
             {credentials.map((cred) => (
               <div
                 key={cred.id}
                 className="flex items-center justify-between p-4 border border-border rounded-lg bg-muted/50"
               >
                 <div>
-                  <p className="font-medium text-foreground">{cred.email}</p>
+                  <p className="font-medium text-foreground">{cred.email_address}</p>
                   <p className="text-sm text-muted-foreground">
                     Connected on {new Date(cred.created_at).toLocaleDateString()}
                   </p>

@@ -1,11 +1,17 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import CampaignList from './components/campaign-list'
 import CreateCampaignModal from './components/create-campaign-modal'
 import RecentActivity from './components/recent-activity'
 import { DashboardStats } from './components/dashboard-stats'
+import TodayCard from './components/home/today-card'
+import ActivityChart from './components/home/activity-chart'
+import SetupBanner from './components/home/setup-banner'
+import ActiveCampaigns from './components/home/active-campaigns'
+import { FollowUpsDue, NextSteps, RepliesToHandle } from './components/home/action-cards'
+import type { DashboardSummary, HealthReportData } from './components/home/types'
 import { Mail, Plus, Loader2, Sparkles } from 'lucide-react'
 
 interface Campaign {
@@ -26,19 +32,41 @@ export default function DashboardClient({
   userEmail?: string
 }) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
+  const [summary, setSummary] = useState<DashboardSummary | null>(null)
+  const [health, setHealth] = useState<HealthReportData | null>(null)
   const [loading, setLoading] = useState(true)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [greeting, setGreeting] = useState('Welcome back')
 
+  const fetchSummary = useCallback(async () => {
+    try {
+      const response = await fetch('/api/dashboard/summary', { cache: 'no-store' })
+      if (response.ok) setSummary(await response.json())
+    } catch (error) {
+      console.error('Error fetching dashboard summary:', error)
+    }
+  }, [])
+
   useEffect(() => {
-    fetchCampaigns()
+    Promise.all([fetchCampaigns(), fetchSummary()]).finally(() => setLoading(false))
+
+    // The setup banner is secondary: load it without blocking the page
+    fetch('/api/health', { cache: 'no-store' })
+      .then(res => (res.ok ? res.json() : null))
+      .then(setHealth)
+      .catch(() => {})
+
+    // Keep "Today" fresh while the tab is open
+    const interval = setInterval(fetchSummary, 60_000)
 
     // Set time-based greeting
     const hour = new Date().getHours()
     if (hour < 12) setGreeting('Good morning')
     else if (hour < 18) setGreeting('Good afternoon')
     else setGreeting('Good evening')
-  }, [])
+
+    return () => clearInterval(interval)
+  }, [fetchSummary])
 
   const fetchCampaigns = async () => {
     try {
@@ -49,14 +77,13 @@ export default function DashboardClient({
       }
     } catch (error) {
       console.error('Error fetching campaigns:', error)
-    } finally {
-      setLoading(false)
     }
   }
 
   const handleCreateCampaign = (newCampaign: Campaign) => {
     setCampaigns([newCampaign, ...campaigns])
     setShowCreateModal(false)
+    fetchSummary()
   }
 
   const handleDeleteCampaign = async (campaignId: string) => {
@@ -66,14 +93,17 @@ export default function DashboardClient({
       })
       if (response.ok) {
         setCampaigns(campaigns.filter((c) => c.id !== campaignId))
+        fetchSummary()
       }
     } catch (error) {
       console.error('Error deleting campaign:', error)
     }
   }
 
+  const activeCount = summary?.activeCampaigns.filter(c => c.status !== 'draft').length ?? 0
+
   return (
-    <div className="flex flex-col gap-8 py-8 animate-enter">
+    <div className="flex flex-col gap-6 py-8 animate-enter">
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -94,6 +124,8 @@ export default function DashboardClient({
         </Button>
       </div>
 
+      <SetupBanner health={health} />
+
       {loading ? (
         <div className="flex flex-col items-center justify-center py-24 glass-panel rounded-2xl">
           <Loader2 className="w-8 h-8 text-primary animate-spin mb-4" />
@@ -101,10 +133,26 @@ export default function DashboardClient({
         </div>
       ) : (
         <>
-          {/* Stats Grid */}
-          <DashboardStats campaigns={campaigns} />
+          {summary && (
+            <>
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+                <TodayCard today={summary.today} />
+                <div className="lg:col-span-2">
+                  <ActivityChart data={summary.chart} />
+                </div>
+              </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <DashboardStats totals={summary.totals} activeCampaigns={activeCount} />
+
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+                <RepliesToHandle replies={summary.replies} />
+                <FollowUpsDue followUps={summary.followUpsDue} />
+                <NextSteps pipeline={summary.pipeline} />
+              </div>
+            </>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Campaigns Section - Takes 2/3 width */}
             <div className="lg:col-span-2 space-y-4">
               <div className="flex items-center justify-between">
@@ -136,8 +184,9 @@ export default function DashboardClient({
               )}
             </div>
 
-            {/* Activity Feed - Takes 1/3 width */}
-            <div className="space-y-4">
+            {/* Side column - Takes 1/3 width */}
+            <div className="space-y-6">
+              {summary && <ActiveCampaigns campaigns={summary.activeCampaigns} />}
               <RecentActivity />
             </div>
           </div>

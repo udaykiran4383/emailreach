@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  check:
+    name: Typecheck, unit tests, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:unit
+      - name: Build
+        run: npm run build
+        env:
+          # Placeholders: some modules create a Supabase client at import time
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
+          SUPABASE_SERVICE_ROLE_KEY: placeholder
+
+  scheduler:
+    name: Chronos scheduler build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scheduler
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: scheduler/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  mcp:
+    name: MCP server build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: mcp/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  e2e:
+    name: End-to-end (local Postgres + PostgREST, mocked Gmail/Claude)
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      POSTGREST_VERSION: v16.4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+
+      - name: Locate the runner's preinstalled PostgreSQL
+        run: |
+          PG_BIN=$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)
+          test -x "$PG_BIN/initdb"
+          echo "E2E_PG_BIN=$PG_BIN" >> "$GITHUB_ENV"
+          "$PG_BIN/postgres" --version
+
+      - name: Install PostgREST ${{ env.POSTGREST_VERSION }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/postgrest"
+          curl -fsSL "https://github.com/PostgREST/postgrest/releases/download/${POSTGREST_VERSION}/postgrest-${POSTGREST_VERSION}-linux-static-x86-64.tar.xz" \
+            | tar -xJ -C "$RUNNER_TEMP/postgrest"
+          echo "E2E_POSTGREST_BIN=$RUNNER_TEMP/postgrest/postgrest" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/postgrest/postgrest" --version
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            tests/e2e/.report
+            tests/e2e/.results
+            tests/e2e/.data/*.log
+          retention-days: 7

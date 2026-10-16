@@ -1,10 +1,12 @@
 import { getSupabaseServerClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
-import { getUser } from '@/lib/auth/actions'
+import { guardDebugRoute } from '@/lib/debug-guard'
 
 export async function GET() {
+    const guard = await guardDebugRoute()
+    if (!guard.ok) return guard.response
+    const user = guard.user
     const supabase = await getSupabaseServerClient()
-    const user = await getUser()
 
     // Get unique user_ids from campaigns
     const { data: campaigns, error: campaignsError } = await supabase

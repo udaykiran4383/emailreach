@@ -10,6 +10,7 @@
 
 # next.js
 /.next/
+/.next-e2e/
 /out/
 
 # production
@@ -39,3 +40,35 @@ next-env.d.ts
 batch*.csv
 test_recipients.csv
 .DS_Store
+
+# chronos scheduler
+scheduler/node_modules
+scheduler/dist
+scheduler/logs
+scheduler/.env
+
+# MCP server
+mcp/node_modules
+mcp/dist
+
+# e2e test artifacts
+tests/e2e/.data
+tests/e2e/.env.e2e
+tests/e2e/.report
+tests/e2e/.results
+
+# unit test coverage
+/coverage
+
+# Google OAuth client secret downloads
+client_secret_*.json
+
+# Gmail cleanup undo logs (message ids)
+scripts/dev/.trash-log-*.json
+
+# Personal contact databases
+/data/
+scripts/dev/.scan-cache.json
+
+# Resumes / personal PDFs dropped in the project root
+/*.pdf

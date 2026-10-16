@@ -1,4 +1,5 @@
-
+// Dev helper: print stored Gmail ids for one recipient (reads .env/.env.local, uses the service role).
+//   npx tsx scripts/dev/check-threading.ts someone@example.com
 import { createClient } from '@supabase/supabase-js'
 import fs from 'fs'
 import path from 'path'
@@ -25,7 +26,11 @@ const supabase = createClient(
 )
 
 async function checkThreadingIds() {
-    const email = 'uday.abhyuday@gmail.com'
+    const email = process.argv[2]
+    if (!email) {
+        console.error('Usage: npx tsx scripts/dev/check-threading.ts <recipient-email>')
+        process.exit(1)
+    }
     const { data, error } = await supabase
         .from('email_recipients')
         .select('email, status, gmail_message_id, gmail_thread_id')

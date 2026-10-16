@@ -68,14 +68,20 @@ export async function GET(
     r.status !== 'skipped'
   )
 
-  const totalSent = activeRecipients.filter((r) => r.status === 'sent' || r.status === 'replied').length
+  const totalBounced = activeRecipients.filter((r) => r.status === 'bounced').length
+  // Bounced emails were sent too: they count as delivery attempts
+  const totalSent = activeRecipients.filter((r) => r.status === 'sent' || r.status === 'replied' || r.status === 'bounced').length
+  const totalDelivered = totalSent - totalBounced
   const totalFailed = activeRecipients.filter((r) => r.status === 'failed').length
   const totalReplies = activeRecipients.filter((r) => r.status === 'replied').length
   const totalPending = activeRecipients.filter((r) => r.status === 'pending').length
   const totalUncertain = activeRecipients.filter((r) => r.status === 'uncertain').length
+  const totalOpened = activeRecipients.filter((r) => (r.open_count || 0) > 0).length
 
   // Calculate rates
-  const openRate = totalSent > 0 ? (totalReplies / totalSent) * 100 : 0
+  const replyRate = totalDelivered > 0 ? (totalReplies / totalDelivered) * 100 : 0
+  const openRate = totalDelivered > 0 ? (totalOpened / totalDelivered) * 100 : 0
+  const bounceRate = totalSent > 0 ? (totalBounced / totalSent) * 100 : 0
   const failureRate = totalSent + totalFailed > 0 ? (totalFailed / (totalSent + totalFailed)) * 100 : 0
 
   return NextResponse.json({
@@ -85,7 +91,12 @@ export async function GET(
     totalPending,
     totalSkipped,
     totalUncertain,
+    totalBounced,
+    totalOpened,
+    trackOpens: !!campaign.track_opens,
+    replyRate: replyRate.toFixed(1),
     openRate: openRate.toFixed(1),
+    bounceRate: bounceRate.toFixed(1),
     failureRate: failureRate.toFixed(1),
     logs: activeRecipients.map((r) => ({
       id: r.id,
@@ -97,6 +108,10 @@ export async function GET(
       replyContent: r.reply_snippet || null,
       replyFrom: r.reply_from || null,
       replyTimestamp: r.reply_timestamp || null,
+      opened: (r.open_count || 0) > 0,
+      openCount: r.open_count || 0,
+      lastOpenedAt: r.last_opened_at || null,
+      errorMessage: r.error_message || null,
       // @ts-ignore
       replies: r.email_replies || []
     })),

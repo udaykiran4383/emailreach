@@ -1,0 +1,94 @@
+# Requires: kubectl -n chronos create secret generic emailreach --from-literal=url=https://your-app --from-literal=cron-secret=...
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chronos-worker
+  namespace: chronos
+  labels:
+    app: chronos-worker
+spec:
+  replicas: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: chronos-worker
+  template:
+    metadata:
+      labels:
+        app: chronos-worker
+    spec:
+      serviceAccountName: chronos
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: worker
+        image: chronos-worker:latest
+        imagePullPolicy: Never
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: KAFKA_BROKERS
+          value: "kafka-service.chronos.svc.cluster.local:9092"
+        - name: REDIS_URL
+          value: "redis://redis-service.chronos.svc.cluster.local:6379"
+        - name: EMAILREACH_URL
+          valueFrom:
+            secretKeyRef:
+              name: emailreach
+              key: url
+        - name: CRON_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: emailreach
+              key: cron-secret
+        - name: EMAILREACH_TICK_SECONDS
+          value: "60"
+        - name: LOG_LEVEL
+          value: "info"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+      volumes:
+      - name: logs
+        emptyDir: {}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: chronos-worker-hpa
+  namespace: chronos
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: chronos-worker
+  minReplicas: 5
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 75
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 85

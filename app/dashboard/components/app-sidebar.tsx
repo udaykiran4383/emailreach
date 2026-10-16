@@ -7,7 +7,14 @@ import {
     Settings,
     Sparkles,
     User,
-    BarChart3
+    BarChart3,
+    ScanSearch,
+    UserSearch,
+    Trash2,
+    Briefcase,
+    KanbanSquare,
+    Inbox,
+    ListChecks
 } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -40,6 +47,41 @@ const items = [
         icon: Mail,
     },
     {
+        title: 'Pipeline',
+        url: '/dashboard/pipeline',
+        icon: KanbanSquare,
+    },
+    {
+        title: 'Replies',
+        url: '/dashboard/replies',
+        icon: Inbox,
+    },
+    {
+        title: 'Hiring Now',
+        url: '/dashboard/jobs',
+        icon: Briefcase,
+    },
+    {
+        title: 'Extract Emails',
+        url: '/dashboard/extract',
+        icon: ScanSearch,
+    },
+    {
+        title: 'Find HR & Leaders',
+        url: '/dashboard/find-contacts',
+        icon: UserSearch,
+    },
+    {
+        title: 'Inbox Cleanup',
+        url: '/dashboard/cleanup',
+        icon: Trash2,
+    },
+    {
+        title: 'Setup',
+        url: '/dashboard/setup',
+        icon: ListChecks,
+    },
+    {
         title: 'Gmail Settings',
         url: '/dashboard/settings',
         icon: Settings,
@@ -49,6 +91,21 @@ const items = [
 export function AppSidebar({ user, ...props }: { user: any } & React.ComponentProps<typeof Sidebar>) {
     const pathname = usePathname()
     const initials = user?.email ? user.email.substring(0, 2).toUpperCase() : 'U'
+    const [setupErrors, setSetupErrors] = React.useState(0)
+
+    // Red dot on "Setup" when a check needs fixing; fetched once per page load, failures ignored
+    React.useEffect(() => {
+        let cancelled = false
+        fetch('/api/health', { cache: 'no-store' })
+            .then((res) => (res.ok ? res.json() : null))
+            .then((report) => {
+                if (!cancelled && report?.summary) setSetupErrors(report.summary.error || 0)
+            })
+            .catch(() => {})
+        return () => {
+            cancelled = true
+        }
+    }, [])
 
     return (
         <Sidebar collapsible="icon" {...props} className="border-r border-border/40 bg-sidebar/50 backdrop-blur-xl">
@@ -84,8 +141,16 @@ export function AppSidebar({ user, ...props }: { user: any } & React.ComponentPr
                                             className="transition-all duration-200 data-[active=true]:bg-primary/10 data-[active=true]:text-primary font-medium"
                                         >
                                             <Link href={item.url}>
-                                                <item.icon className={isActive ? "text-primary" : "text-muted-foreground"} />
+                                                <span className="relative">
+                                                    <item.icon className={`size-4 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
+                                                    {item.url === '/dashboard/setup' && setupErrors > 0 && (
+                                                        <span className="absolute -right-1 -top-1 size-2 rounded-full bg-red-500 ring-2 ring-sidebar" />
+                                                    )}
+                                                </span>
                                                 <span>{item.title}</span>
+                                                {item.url === '/dashboard/setup' && setupErrors > 0 && (
+                                                    <span className="sr-only">({setupErrors} setup issue{setupErrors === 1 ? '' : 's'})</span>
+                                                )}
                                             </Link>
                                         </SidebarMenuButton>
                                     </SidebarMenuItem>

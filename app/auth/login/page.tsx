@@ -8,6 +8,10 @@ import { Input } from '@/components/ui/input'
 import Link from 'next/link'
 import { useState } from 'react'
 
+// Google is the default sign-in; email/password stays available behind a flag (used by the e2e tests)
+const emailLogin = process.env.NEXT_PUBLIC_ENABLE_EMAIL_LOGIN === 'true'
+const googleLogin = process.env.NEXT_PUBLIC_ENABLE_GOOGLE_LOGIN !== 'false'
+
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -43,7 +47,7 @@ export default function LoginPage() {
               </span>
             </Link>
             <h1 className="text-2xl font-bold text-foreground">Welcome Back</h1>
-            <p className="text-muted-foreground mt-2">Sign in to your account</p>
+            <p className="text-muted-foreground mt-2">{emailLogin ? 'Sign in to your account' : 'Sign in with your Google account'}</p>
           </div>
 
           {error && (
@@ -52,77 +56,92 @@ export default function LoginPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-foreground mb-2">
-                Email
-              </label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
+          {emailLogin && (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-foreground mb-2">
+                  Email
+                </label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  disabled={loading}
+                />
+              </div>
+
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-foreground mb-2">
+                  Password
+                </label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  disabled={loading}
+                />
+              </div>
+
+              <Button
+                type="submit"
+                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
                 disabled={loading}
-              />
+              >
+                {loading ? 'Signing in...' : 'Sign In'}
+              </Button>
+            </form>
+          )}
+
+          {/* Google login needs the Google provider enabled in Supabase → Authentication → Providers */}
+          {googleLogin && (
+            <>
+            {emailLogin && (
+            <div className="relative my-6">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-border" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+              </div>
             </div>
+            )}
 
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-foreground mb-2">
-                Password
-              </label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                disabled={loading}
-              />
-            </div>
+            <form action={async () => {
+              const { signInWithGoogle } = await import('@/lib/auth/actions')
+              await signInWithGoogle()
+            }}>
+              <Button
+                variant={emailLogin ? 'outline' : 'default'}
+                type="submit"
+                size="lg"
+                className="w-full"
+              >
+                <svg className="mr-2 h-4 w-4" aria-hidden="true" focusable="false" data-prefix="fab" data-icon="google" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512">
+                  <path fill="currentColor" d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 123 24.5 166.3 64.9l-67.5 64.9C258.5 52.6 94.3 116.6 94.3 256c0 86.5 69.1 156.6 153.7 156.6 98.2 0 135-70.4 140.8-106.9H248v-85.3h236.1c2.3 12.7 3.9 24.9 3.9 41.4z"></path>
+                </svg>
+                Continue with Google
+              </Button>
+              <p className="mt-3 text-center text-xs text-muted-foreground">
+                Signs you in and connects Gmail for sending in one step.
+              </p>
+            </form>
+            </>
+          )}
 
-            <Button
-              type="submit"
-              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
-              disabled={loading}
-            >
-              {loading ? 'Signing in...' : 'Sign In'}
-            </Button>
-          </form>
-
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t border-border" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
-            </div>
-          </div>
-
-          <form action={async () => {
-            const { signInWithGoogle } = await import('@/lib/auth/actions')
-            await signInWithGoogle()
-          }}>
-            <Button
-              variant="outline"
-              type="submit"
-              className="w-full bg-background hover:bg-muted"
-            >
-              <svg className="mr-2 h-4 w-4" aria-hidden="true" focusable="false" data-prefix="fab" data-icon="google" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512">
-                <path fill="currentColor" d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 123 24.5 166.3 64.9l-67.5 64.9C258.5 52.6 94.3 116.6 94.3 256c0 86.5 69.1 156.6 153.7 156.6 98.2 0 135-70.4 140.8-106.9H248v-85.3h236.1c2.3 12.7 3.9 24.9 3.9 41.4z"></path>
-              </svg>
-              Sign in with Google
-            </Button>
-          </form>
-
+          {emailLogin && (
           <p className="mt-6 text-center text-sm text-muted-foreground">
             Don&apos;t have an account?{' '}
             <Link href="/auth/signup" className="text-primary hover:underline font-medium">
               Create one
             </Link>
           </p>
+          )}
         </div>
       </div>
     </div >

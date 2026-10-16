@@ -1,8 +1,10 @@
 import { createClient } from '@supabase/supabase-js'
 import { google } from 'googleapis'
 import { NextResponse } from 'next/server'
-import { processCampaignSend } from '@/lib/campaigns/actions'
-import { sendFollowUpEmails } from '@/lib/email/follow-ups'
+import { processCampaignSend, processSequenceSend } from '@/lib/campaigns/actions'
+import { scanInboxForBounces } from '@/lib/email/bounces'
+import { syncRepliesForUser } from '@/lib/email/reply-sync'
+import { recordCronHeartbeat } from '@/lib/health'
 
 // Admin client
 const supabaseAdmin = createClient(
@@ -10,183 +12,120 @@ const supabaseAdmin = createClient(
     process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 )
 
-/**
- * Syncs reply status for a campaign by checking Gmail threads
- */
-async function syncRepliesForCampaign(campaignId: string, userId: string): Promise<{ replied: number; errors: string[] }> {
-    const errors: string[] = []
-    let repliedCount = 0
-
-    // Get Gmail credentials for this user
-    const { data: gmailCredential, error: gmailError } = await supabaseAdmin
-        .from('gmail_credentials')
-        .select('*')
-        .eq('user_id', userId)
-        .single()
-
-    if (gmailError || !gmailCredential) {
-        return { replied: 0, errors: ['Gmail not connected for user'] }
+function isAuthorized(request: Request): boolean {
+    const secret = process.env.CRON_SECRET
+    if (!secret) {
+        // Without a secret anyone could trigger sends, so only allow it locally
+        return process.env.NODE_ENV !== 'production'
     }
-
-    // Get sent recipients for this campaign
-    const { data: recipients, error: recipientsError } = await supabaseAdmin
-        .from('email_recipients')
-        .select('*')
-        .eq('campaign_id', campaignId)
-        .eq('status', 'sent')
-
-    if (recipientsError || !recipients || recipients.length === 0) {
-        return { replied: 0, errors: [] }
-    }
-
-    // Initialize Gmail client
-    const oauth2Client = new google.auth.OAuth2(
-        process.env.GMAIL_CLIENT_ID,
-        process.env.GMAIL_CLIENT_SECRET
-    )
-    oauth2Client.setCredentials({
-        access_token: gmailCredential.access_token,
-        refresh_token: gmailCredential.refresh_token,
-    })
-
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client })
-
-    // Check each recipient
-    for (const recipient of recipients) {
-        try {
-            const email = recipient.email.trim()
-            const threadId = recipient.gmail_thread_id
-
-            let hasReply = false
-
-            // Method 1: Check thread if we have thread ID
-            if (threadId) {
-                try {
-                    const threadResp = await gmail.users.threads.get({
-                        userId: 'me',
-                        id: threadId,
-                        format: 'metadata',
-                        metadataHeaders: ['From'],
-                    })
-
-                    const messages = threadResp.data.messages || []
-                    hasReply = messages.some(msg => {
-                        const fromHeader = msg.payload?.headers?.find(h => h.name?.toLowerCase() === 'from')
-                        const fromValue = fromHeader?.value?.toLowerCase() || ''
-                        return fromValue.includes(email.toLowerCase())
-                    })
-                } catch (e) {
-                    // Thread fetch failed, try fallback
-                }
-            }
-
-            // Method 2: Fallback inbox search
-            if (!hasReply) {
-                const replyResp = await gmail.users.messages.list({
-                    userId: 'me',
-                    q: `from:${email} newer_than:30d`,
-                    maxResults: 5,
-                })
-                hasReply = (replyResp.data.messages?.length || 0) > 0
-            }
-
-            if (hasReply) {
-                await supabaseAdmin
-                    .from('email_recipients')
-                    .update({
-                        status: 'replied',
-                        replied_at: new Date().toISOString(),
-                    })
-                    .eq('id', recipient.id)
-                repliedCount++
-            }
-        } catch (error: any) {
-            errors.push(`${recipient.email}: ${error.message}`)
-        }
-    }
-
-    return { replied: repliedCount, errors }
+    const authHeader = request.headers.get('authorization')
+    const querySecret = new URL(request.url).searchParams.get('secret')
+    return authHeader === `Bearer ${secret}` || querySecret === secret
 }
 
 export async function GET(request: Request) {
-    // Check CRON_SECRET for security
-    const authHeader = request.headers.get('authorization')
-    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-        if (process.env.CRON_SECRET) {
-            // Commented out for dev testing
-            // return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-        }
+    if (!isAuthorized(request)) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const results = {
-        scheduled_campaigns: 0,
-        follow_ups: 0,
+        bounces_detected: 0,
+        unsubscribes_detected: 0,
         replies_synced: 0,
+        scheduled_campaigns: 0,
+        emails_sent: 0,
+        follow_ups: 0,
         errors: [] as string[]
     }
 
     try {
-        // 1. Process Scheduled Campaigns
-        const { data: scheduledCampaigns, error: scheduledError } = await supabaseAdmin
-            .from('campaigns')
-            .select('id, user_id')
-            .eq('status', 'scheduled')
+        const { data: credentials, error: credentialsError } = await supabaseAdmin
+            .from('gmail_credentials')
+            .select('*')
 
-        if (scheduledError) throw scheduledError
+        if (credentialsError) throw credentialsError
 
-        if (scheduledCampaigns && scheduledCampaigns.length > 0) {
-            for (const campaign of scheduledCampaigns) {
+        // One pass per user with Gmail connected
+        const seenUsers = new Set<string>()
+        for (const credential of credentials || []) {
+            const userId = credential.user_id
+            if (seenUsers.has(userId)) continue
+            seenUsers.add(userId)
+
+            const oauth2Client = new google.auth.OAuth2(
+                process.env.GMAIL_CLIENT_ID,
+                process.env.GMAIL_CLIENT_SECRET
+            )
+            oauth2Client.setCredentials({
+                access_token: credential.access_token,
+                refresh_token: credential.refresh_token,
+            })
+            const gmail = google.gmail({ version: 'v1', auth: oauth2Client })
+
+            // 1. Bounces and unsubscribes first, so nothing is sent to a dead address
+            try {
+                const scan = await scanInboxForBounces(gmail, userId)
+                results.bounces_detected += scan.bounced
+                results.unsubscribes_detected += scan.unsubscribed
+                results.errors.push(...scan.errors.map(e => `Bounce scan ${userId}: ${e}`))
+            } catch (e: any) {
+                results.errors.push(`Bounce scan ${userId}: ${e.message}`)
+            }
+
+            // 2. Replies: one inbox listing for all of the user's campaigns (so follow-ups skip people who answered)
+            try {
+                const sync = await syncRepliesForUser(gmail, userId, { useWatermark: true })
+                results.replies_synced += sync.replied
+                results.errors.push(...sync.errors.map(e => `Reply sync ${userId}: ${e}`))
+            } catch (e: any) {
+                console.error(`Error syncing replies for ${userId}:`, e)
+                results.errors.push(`Reply sync ${userId}: ${e.message}`)
+            }
+
+            const { data: campaigns, error: campaignsError } = await supabaseAdmin
+                .from('campaigns')
+                .select('id, user_id, status, auto_follow_up, follow_up_template')
+                .eq('user_id', userId)
+                .in('status', ['scheduled', 'sending', 'sent'])
+
+            if (campaignsError) {
+                results.errors.push(`Campaigns ${userId}: ${campaignsError.message}`)
+                continue
+            }
+
+            // 3. Continue scheduled campaigns (each call is time-boxed and rate limited)
+            for (const campaign of (campaigns || []).filter(c => c.status === 'scheduled')) {
                 try {
-                    await processCampaignSend(campaign.id, campaign.user_id, true, supabaseAdmin)
+                    const sendResult = await processCampaignSend(campaign.id, userId, true, supabaseAdmin)
                     results.scheduled_campaigns++
+                    results.emails_sent += sendResult.sentCount
+                    // Daily limit / sending window apply to the whole account, so stop for this user
+                    if (['daily_limit', 'outside_window', 'auth', 'gmail_limit'].includes(sendResult.reason)) break
                 } catch (e: any) {
                     console.error(`Error processing scheduled campaign ${campaign.id}:`, e)
                     results.errors.push(`Scheduled Campaign ${campaign.id}: ${e.message}`)
                 }
             }
-        }
 
-        // 2. Sync Replies for Active Campaigns
-        const { data: activeCampaigns, error: activeError } = await supabaseAdmin
-            .from('campaigns')
-            .select('id, user_id')
-            .in('status', ['sent', 'sending'])
-
-        if (activeError) throw activeError
-
-        if (activeCampaigns && activeCampaigns.length > 0) {
-            for (const campaign of activeCampaigns) {
+            // 4. Due sequence steps, only for campaigns that opted in
+            for (const campaign of (campaigns || []).filter(c => c.auto_follow_up)) {
                 try {
-                    const syncResult = await syncRepliesForCampaign(campaign.id, campaign.user_id)
-                    results.replies_synced += syncResult.replied
-                    if (syncResult.errors.length > 0) {
-                        results.errors.push(...syncResult.errors.map(e => `Sync ${campaign.id}: ${e}`))
-                    }
+                    const followUpResult = await processSequenceSend(campaign.id, userId, supabaseAdmin, { onlyDue: true })
+                    results.follow_ups += followUpResult.sentCount
+                    // outside_window can be per-campaign when sending in recipients' timezones
+                    if (['daily_limit', 'auth', 'gmail_limit'].includes(followUpResult.reason)) break
                 } catch (e: any) {
-                    console.error(`Error syncing replies for ${campaign.id}:`, e)
-                    results.errors.push(`Sync Campaign ${campaign.id}: ${e.message}`)
-                }
-            }
-        }
-
-        // 3. Process Follow-ups (after sync so we don't send to those who replied)
-        if (activeCampaigns && activeCampaigns.length > 0) {
-            for (const campaign of activeCampaigns) {
-                try {
-                    const result = await sendFollowUpEmails(campaign.id, supabaseAdmin)
-                    results.follow_ups += result.sentCount
-                } catch (e: any) {
+                    if (e.message === 'No follow-up steps defined') continue
                     console.error(`Error sending follow-ups for ${campaign.id}:`, e)
                     results.errors.push(`Follow-up Campaign ${campaign.id}: ${e.message}`)
                 }
             }
         }
-
     } catch (error: any) {
         console.error('Cron job error:', error)
         return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
+    await recordCronHeartbeat({ ...results })
     return NextResponse.json(results)
 }
-

@@ -2,6 +2,7 @@
 
 import { getSupabaseServerClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { getApiTokenUser } from '@/lib/api-token'
 
 function getBaseUrl() {
   if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL
@@ -61,6 +62,10 @@ export async function signInWithGoogle() {
     provider: 'google',
     options: {
       redirectTo: `${getBaseUrl()}/auth/callback`,
+      // Ask for Gmail access in the same consent screen so login also connects Gmail
+      // (the Supabase Google provider must use the same OAuth client as GMAIL_CLIENT_ID)
+      scopes: 'https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.modify',
+      queryParams: { access_type: 'offline', prompt: 'consent' },
     },
   })
 
@@ -89,6 +94,11 @@ export async function signOut() {
 }
 
 export async function getUser() {
+  // Personal API token (MCP server): undefined = no token on this request,
+  // null = a token that doesn't match any user
+  const tokenUser = await getApiTokenUser()
+  if (tokenUser !== undefined) return tokenUser
+
   const supabase = await getSupabaseServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   return user

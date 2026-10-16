@@ -1,7 +1,32 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { API_TOKEN_PREFIX, isApiTokenRoute } from '@/lib/api-token-routes'
 
 export async function updateSession(request: NextRequest) {
+    // Open-tracking pixels and resume links are fetched by recipients: no session, no redirect
+    if (request.nextUrl.pathname.startsWith('/api/track') || request.nextUrl.pathname.startsWith('/r/')) {
+        return NextResponse.next({ request })
+    }
+
+    // OAuth sign-in falls back to the Site URL when the callback isn't on Supabase's
+    // redirect allow-list — forward the code to the real callback instead of dropping it
+    if (request.nextUrl.pathname === '/' && request.nextUrl.searchParams.has('code')) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/auth/callback'
+        return NextResponse.redirect(url)
+    }
+
+    // Personal API tokens (MCP server) work only on allowlisted routes. Requests
+    // carrying a token anywhere else are refused here, so getUser() can accept
+    // a token whenever one reaches a route. The route validates the token itself.
+    const authHeader = request.headers.get('authorization') || ''
+    if (authHeader.startsWith(`Bearer ${API_TOKEN_PREFIX}`)) {
+        if (!isApiTokenRoute(request.method, request.nextUrl.pathname)) {
+            return NextResponse.json({ error: 'API tokens are not allowed on this route' }, { status: 403 })
+        }
+        return NextResponse.next({ request })
+    }
+
     let supabaseResponse = NextResponse.next({
         request,
     })

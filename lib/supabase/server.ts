@@ -1,5 +1,6 @@
 import { createServerClient as createSupabaseServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { createClientForTokenUser, getApiTokenUser } from '@/lib/api-token'
 
 export async function createServerClient() {
   const cookieStore = await cookies()
@@ -29,5 +30,8 @@ export async function createServerClient() {
 }
 
 export async function getSupabaseServerClient() {
+  // Requests authenticated with a personal API token have no auth cookie
+  const tokenUser = await getApiTokenUser()
+  if (tokenUser) return createClientForTokenUser(tokenUser.id)
   return createServerClient()
 }

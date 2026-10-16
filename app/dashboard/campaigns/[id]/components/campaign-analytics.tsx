@@ -18,7 +18,10 @@ import {
   RefreshCw,
   Filter,
   Download,
-  RotateCcw
+  RotateCcw,
+  MailOpen,
+  MailX,
+  AlertTriangle
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -37,18 +40,27 @@ interface Analytics {
   totalPending: number
   totalSkipped: number
   totalUncertain: number
+  totalBounced: number
+  totalOpened: number
+  trackOpens: boolean
+  replyRate: string
   openRate: string
+  bounceRate: string
   failureRate: string
   logs: Array<{
     id: string
     email: string
     name?: string
-    status: 'sent' | 'failed'
+    status: 'sent' | 'failed' | 'bounced' | 'pending' | 'uncertain'
     sentAt: string
     replied: boolean
     replyContent?: string
     replyFrom?: string
     replyTimestamp?: string
+    opened: boolean
+    openCount: number
+    lastOpenedAt?: string | null
+    errorMessage?: string | null
   }>
   skippedLogs: Array<{
     id: string
@@ -58,7 +70,7 @@ interface Analytics {
   }>
 }
 
-type FilterType = 'all' | 'sent' | 'replied' | 'failed'
+type FilterType = 'all' | 'sent' | 'opened' | 'replied' | 'bounced' | 'failed'
 
 export default function CampaignAnalytics({ campaignId, lastSync }: { campaignId: string; lastSync?: number }) {
   const [analytics, setAnalytics] = useState<Analytics | null>(null)
@@ -213,8 +225,12 @@ export default function CampaignAnalytics({ campaignId, lastSync }: { campaignId
     switch (filter) {
       case 'sent':
         return analytics.logs.filter(l => l.status === 'sent' && !l.replied)
+      case 'opened':
+        return analytics.logs.filter(l => l.opened)
       case 'replied':
         return analytics.logs.filter(l => l.replied)
+      case 'bounced':
+        return analytics.logs.filter(l => l.status === 'bounced')
       case 'failed':
         return analytics.logs.filter(l => l.status === 'failed')
       default:
@@ -286,8 +302,24 @@ export default function CampaignAnalytics({ campaignId, lastSync }: { campaignId
       textColor: 'text-green-600'
     },
     {
+      label: 'Opened',
+      value: analytics.trackOpens || analytics.totalOpened > 0 ? `${analytics.totalOpened} (${analytics.openRate}%)` : 'Off',
+      icon: MailOpen,
+      gradient: 'from-sky-500 to-cyan-600',
+      bgLight: 'bg-sky-50',
+      textColor: 'text-sky-600'
+    },
+    {
+      label: 'Bounced',
+      value: `${analytics.totalBounced} (${analytics.bounceRate}%)`,
+      icon: MailX,
+      gradient: 'from-rose-500 to-red-600',
+      bgLight: 'bg-rose-50',
+      textColor: 'text-rose-600'
+    },
+    {
       label: 'Reply Rate',
-      value: `${analytics.openRate}%`,
+      value: `${analytics.replyRate}%`,
       icon: TrendingUp,
       gradient: 'from-violet-500 to-purple-600',
       bgLight: 'bg-violet-50',
@@ -413,8 +445,21 @@ export default function CampaignAnalytics({ campaignId, lastSync }: { campaignId
         </div>
       </div>
 
+      {parseFloat(analytics.bounceRate) > 3 && (
+        <div className="flex items-start gap-3 p-4 rounded-xl border border-red-200 bg-red-50 text-red-800 dark:bg-red-950/30 dark:border-red-900 dark:text-red-200">
+          <AlertTriangle className="w-5 h-5 mt-0.5 shrink-0" />
+          <div className="text-sm">
+            <p className="font-semibold">High bounce rate: {analytics.bounceRate}%</p>
+            <p>
+              Gmail starts penalizing senders whose bounce rate goes above ~2-3%. Bounced addresses are blocked
+              automatically. Verify the remaining recipients before sending more.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Metrics Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
         {metrics.map((metric, index) => {
           const Icon = metric.icon
           const isReplies = metric.label === 'Replies'
@@ -438,7 +483,7 @@ export default function CampaignAnalytics({ campaignId, lastSync }: { campaignId
                   {metric.label}
                 </p>
               </div>
-              <p className={`text-3xl font-bold ${metric.textColor}`}>
+              <p className={`${typeof metric.value === 'string' && metric.value.length > 6 ? 'text-2xl' : 'text-3xl'} font-bold ${metric.textColor}`}>
                 {metric.value}
               </p>
               {isClickable && (
@@ -459,29 +504,30 @@ export default function CampaignAnalytics({ campaignId, lastSync }: { campaignId
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie
-                  data={[
-                    { name: 'Replied', value: analytics.totalReplies },
-                    { name: 'Sent (No Reply)', value: analytics.totalSent - analytics.totalReplies },
-                    { name: 'Failed', value: analytics.totalFailed },
-                    { name: 'Pending', value: analytics.totalPending },
-                    { name: 'Skipped', value: analytics.totalSkipped },
-                    { name: 'Uncertain', value: analytics.totalUncertain },
-                  ].filter(d => d.value > 0)}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  <Cell key="replied" fill="#10b981" /> {/* green-500 */}
-                  <Cell key="sent" fill="#3b82f6" />    {/* blue-500 */}
-                  <Cell key="failed" fill="#ef4444" />  {/* red-500 */}
-                  <Cell key="pending" fill="#f59e0b" /> {/* yellow-500 */}
-                  <Cell key="skipped" fill="#6b7280" /> {/* gray-500 */}
-                  <Cell key="uncertain" fill="#f97316" /> {/* orange-500 */}
-                </Pie>
+                {(() => {
+                  const pieData = [
+                    { name: 'Replied', value: analytics.totalReplies, color: '#10b981' },
+                    { name: 'Sent (No Reply)', value: analytics.totalSent - analytics.totalReplies - analytics.totalBounced, color: '#3b82f6' },
+                    { name: 'Bounced', value: analytics.totalBounced, color: '#e11d48' },
+                    { name: 'Failed', value: analytics.totalFailed, color: '#ef4444' },
+                    { name: 'Pending', value: analytics.totalPending, color: '#f59e0b' },
+                    { name: 'Skipped', value: analytics.totalSkipped, color: '#6b7280' },
+                    { name: 'Uncertain', value: analytics.totalUncertain, color: '#f97316' },
+                  ].filter(d => d.value > 0)
+                  return (
+                    <Pie
+                      data={pieData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={80}
+                      paddingAngle={5}
+                      dataKey="value"
+                    >
+                      {pieData.map(d => <Cell key={d.name} fill={d.color} />)}
+                    </Pie>
+                  )
+                })()}
                 <Tooltip
                   contentStyle={{
                     backgroundColor: 'hsl(var(--card))',
@@ -500,13 +546,22 @@ export default function CampaignAnalytics({ campaignId, lastSync }: { campaignId
       {/* Detailed Log */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="px-6 py-4 border-b border-border bg-muted/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <h3 className="font-semibold text-foreground">Send History</h3>
+          <div>
+            <h3 className="font-semibold text-foreground">Send History</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {analytics.trackOpens
+                ? 'Opens are approximate: images may be blocked (missed opens) or prefetched by Apple Mail (false opens). Replies are the reliable signal.'
+                : 'Open tracking is off for this campaign.'}
+            </p>
+          </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             {[
               { id: 'all', label: 'All' },
               { id: 'sent', label: 'Sent' },
+              { id: 'opened', label: 'Opened' },
               { id: 'replied', label: 'Replied' },
+              { id: 'bounced', label: 'Bounced' },
               { id: 'failed', label: 'Failed' },
             ].map((tab) => (
               <button
@@ -540,6 +595,9 @@ export default function CampaignAnalytics({ campaignId, lastSync }: { campaignId
                   Sent
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Opened
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                   Reply
                 </th>
               </tr>
@@ -547,7 +605,7 @@ export default function CampaignAnalytics({ campaignId, lastSync }: { campaignId
             <tbody>
               {getFilteredLogs().length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-muted-foreground">
+                  <td colSpan={5} className="px-6 py-8 text-center text-muted-foreground">
                     {filter === 'all' ? 'No send history yet' : `No ${filter} emails found`}
                   </td>
                 </tr>
@@ -560,9 +618,11 @@ export default function CampaignAnalytics({ campaignId, lastSync }: { campaignId
                     <td className="px-6 py-4 text-sm text-foreground font-medium">{log.email}</td>
                     <td className="px-6 py-4 text-sm">
                       <span
+                        title={log.errorMessage || undefined}
                         className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${log.status === 'sent'
                           ? 'badge-success'
-                          : 'bg-red-100 text-red-800'
+                          : log.status === 'pending' ? 'bg-gray-100 text-gray-700'
+                            : 'bg-red-100 text-red-800'
                           }`}
                       >
                         {log.status === 'sent' ? (
@@ -579,6 +639,19 @@ export default function CampaignAnalytics({ campaignId, lastSync }: { campaignId
                         day: 'numeric',
                         year: 'numeric'
                       })}
+                    </td>
+                    <td className="px-6 py-4 text-sm">
+                      {log.opened ? (
+                        <span
+                          className="inline-flex items-center gap-1.5 text-sky-600 font-medium"
+                          title={log.lastOpenedAt ? `Last opened ${new Date(log.lastOpenedAt).toLocaleString()}` : undefined}
+                        >
+                          <MailOpen className="w-4 h-4" />
+                          {log.openCount > 1 ? `${log.openCount}×` : 'Yes'}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-sm">
                       {log.replied ? (

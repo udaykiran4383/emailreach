@@ -66,9 +66,23 @@ export async function PATCH(
   const body = await request.json()
   const supabase = await getSupabaseServerClient()
 
+  // Only allow editable fields; never let the client rewrite ownership or ids
+  const EDITABLE_FIELDS = [
+    'name', 'subject_template', 'email_body_template', 'follow_up_template',
+    'follow_up_days', 'status', 'track_opens', 'auto_follow_up', 'paused_reason',
+  ]
+  const ALLOWED_STATUSES = ['draft', 'scheduled', 'paused', 'archived']
+  const update: Record<string, unknown> = {}
+  for (const key of EDITABLE_FIELDS) {
+    if (key in body) update[key] = body[key]
+  }
+  if ('status' in update && !ALLOWED_STATUSES.includes(update.status as string)) {
+    return NextResponse.json({ error: 'Invalid status' }, { status: 400 })
+  }
+
   const { data, error } = await supabase
     .from('campaigns')
-    .update(body)
+    .update(update)
     .eq('id', id)
     .eq('user_id', user.id)
     .select()

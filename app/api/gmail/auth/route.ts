@@ -17,7 +17,8 @@ export async function GET() {
 
   const scopes = [
     'https://www.googleapis.com/auth/gmail.send',
-    'https://www.googleapis.com/auth/gmail.readonly',
+    // gmail.modify = read + label/trash (needed for inbox cleanup); it cannot permanently delete
+    'https://www.googleapis.com/auth/gmail.modify',
   ]
 
   const authUrl = oauth2Client.generateAuthUrl({

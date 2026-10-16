@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
+import { toast } from 'sonner'
 import {
   Upload,
   RefreshCw,
@@ -11,7 +12,12 @@ import {
   Send,
   Users,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  MailX,
+  ShieldCheck,
+  ShieldAlert,
+  ShieldQuestion,
+  ShieldX
 } from 'lucide-react'
 
 interface Recipient {
@@ -19,15 +25,19 @@ interface Recipient {
   email: string
   name?: string
   company?: string
-  status?: 'pending' | 'sent' | 'replied' | 'failed' | 'skipped'
+  status?: 'pending' | 'sent' | 'replied' | 'failed' | 'skipped' | 'uncertain' | 'bounced'
   error_message?: string
   follow_up_sent?: boolean
+  verification_status?: 'safe' | 'risky' | 'invalid' | null
+  verification_reason?: string | null
 }
 
 export default function RecipientUpload({ campaignId, lastSync }: { campaignId: string, lastSync?: number }) {
   const [recipients, setRecipients] = useState<Recipient[]>([])
   const [uploading, setUploading] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [verifying, setVerifying] = useState(false)
+  const [verifyProgress, setVerifyProgress] = useState<{ verified: number; invalid: number; risky: number; remaining: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -111,17 +121,25 @@ export default function RecipientUpload({ campaignId, lastSync }: { campaignId: 
         throw new Error(data.error || 'Failed to save recipients')
       }
 
+      const skippedParts = [
+        data.duplicates ? `${data.duplicates} duplicate${data.duplicates === 1 ? '' : 's'}` : '',
+        data.blocked ? `${data.blocked} previously bounced/unsubscribed` : '',
+      ].filter(Boolean)
+      const description = skippedParts.length > 0 ? `Skipped ${skippedParts.join(', ')}.` : undefined
+
       if (data.errors && data.errors.length > 0) {
-        alert(`Uploaded ${data.count} recipients with some errors:\n${data.errors.join('\n')}`)
+        toast.warning(`Uploaded ${data.count} recipients with some errors`, {
+          description: [description, ...data.errors].filter(Boolean).join('\n'),
+        })
       } else {
-        alert(`Successfully uploaded ${data.count} recipients!`)
+        toast.success(`Uploaded ${data.count} recipients`, { description })
       }
 
       fetchRecipients()
 
     } catch (error: any) {
       console.error('Error uploading file:', error)
-      alert(`Error uploading file: ${error.message}`)
+      toast.error(`Error uploading file: ${error.message}`)
     } finally {
       setUploading(false)
       if (fileInputRef.current) {
@@ -130,8 +148,80 @@ export default function RecipientUpload({ campaignId, lastSync }: { campaignId: 
     }
   }
 
+  const handleVerify = async () => {
+    setVerifying(true)
+    const totals = { verified: 0, invalid: 0, risky: 0, remaining: 0 }
+    try {
+      // The server verifies in small time-boxed chunks; keep calling until done
+      for (let i = 0; i < 500; i++) {
+        const res = await fetch(`/api/campaigns/${campaignId}/verify`, { method: 'POST' })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Verification failed')
+        totals.verified += data.verified
+        totals.invalid += data.invalid
+        totals.risky += data.risky
+        totals.remaining = data.remaining
+        setVerifyProgress({ ...totals })
+        if (data.remaining === 0 || data.verified === 0) break
+      }
+      toast.success(`Verified ${totals.verified} emails`, {
+        description: `${totals.invalid} invalid (skipped), ${totals.risky} risky`,
+      })
+      fetchRecipients()
+    } catch (error: any) {
+      toast.error(error.message || 'Verification failed')
+    } finally {
+      setVerifying(false)
+      setVerifyProgress(null)
+    }
+  }
+
+  const getVerificationBadge = (recipient: Recipient) => {
+    const reason = recipient.verification_reason || undefined
+    switch (recipient.verification_status) {
+      case 'safe':
+        return (
+          <span title={reason || 'Domain accepts mail'} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+            <ShieldCheck className="w-3 h-3" />
+            Valid
+          </span>
+        )
+      case 'risky':
+        return (
+          <span title={reason} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+            <ShieldAlert className="w-3 h-3" />
+            Risky
+          </span>
+        )
+      case 'invalid':
+        return (
+          <span title={reason} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+            <ShieldX className="w-3 h-3" />
+            Invalid
+          </span>
+        )
+      default:
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+            <ShieldQuestion className="w-3 h-3" />
+            Unverified
+          </span>
+        )
+    }
+  }
+
   const getStatusBadge = (status?: string, error?: string) => {
     switch (status) {
+      case 'bounced':
+        return (
+          <div className="flex flex-col items-start gap-1">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-rose-100 text-rose-800">
+              <MailX className="w-3 h-3" />
+              Bounced
+            </span>
+            {error && <span className="text-[10px] text-rose-600 max-w-[150px] truncate" title={error}>{error}</span>}
+          </div>
+        )
       case 'replied':
         return (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium badge-success">
@@ -222,6 +312,19 @@ export default function RecipientUpload({ campaignId, lastSync }: { campaignId: 
               {recipients.length} Recipients
             </h3>
           </div>
+          <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleVerify}
+            disabled={verifying || loading || !recipients.some(r => r.status === 'pending' && !r.verification_status)}
+            title="Check every pending address before sending, so bad ones never bounce"
+          >
+            {verifying ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
+            {verifying
+              ? `Verifying${verifyProgress ? ` (${verifyProgress.verified} done, ${verifyProgress.remaining} left)` : '...'}`
+              : 'Verify emails'}
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -232,12 +335,14 @@ export default function RecipientUpload({ campaignId, lastSync }: { campaignId: 
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-border bg-muted/30">
                 <th className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Status</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Verified</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Replied?</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Follow-up?</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Name</th>
@@ -250,6 +355,7 @@ export default function RecipientUpload({ campaignId, lastSync }: { campaignId: 
                 [...Array(3)].map((_, i) => (
                   <tr key={i} className="border-b border-border">
                     <td className="px-6 py-4"><div className="skeleton h-6 w-20 rounded-full" /></td>
+                    <td className="px-6 py-4"><div className="skeleton h-6 w-16 rounded-full" /></td>
                     <td className="px-6 py-4"><div className="skeleton h-6 w-12 rounded-full" /></td>
                     <td className="px-6 py-4"><div className="skeleton h-6 w-12 rounded-full" /></td>
                     <td className="px-6 py-4"><div className="skeleton h-4 w-24 rounded" /></td>
@@ -259,7 +365,7 @@ export default function RecipientUpload({ campaignId, lastSync }: { campaignId: 
                 ))
               ) : recipients.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center">
+                  <td colSpan={7} className="px-6 py-12 text-center">
                     <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center mx-auto mb-3">
                       <Users className="w-6 h-6 text-muted-foreground" />
                     </div>
@@ -273,6 +379,7 @@ export default function RecipientUpload({ campaignId, lastSync }: { campaignId: 
                   .map((recipient, index) => (
                     <tr key={recipient.id || index} className="border-b border-border hover:bg-muted/30 transition-colors">
                       <td className="px-6 py-4">{getStatusBadge(recipient.status, recipient.error_message)}</td>
+                      <td className="px-6 py-4">{getVerificationBadge(recipient)}</td>
                       <td className="px-6 py-4">
                         {recipient.status === 'replied' ? (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">

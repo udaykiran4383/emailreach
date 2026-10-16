@@ -6,6 +6,8 @@ interface Recipient {
   email: string
   name?: string
   company?: string
+  verification_status?: 'safe' | 'risky' | 'invalid'
+  verification_reason?: string
 }
 
 export async function POST(
@@ -34,14 +36,69 @@ export async function POST(
     return NextResponse.json({ error: 'Campaign not found' }, { status: 404 })
   }
 
-  // Insert recipients in batches to avoid timeout/size issues
-  const recipientRows = recipients.map((r: Recipient) => ({
-    campaign_id: id,
-    email: r.email,
-    name: r.name || r.email.split('@')[0], // Use email prefix if name is empty
-    company: r.company || null,
-    status: 'pending',
-  }))
+  // Normalize and dedupe within the upload
+  const seen = new Set<string>()
+  let duplicates = 0
+  const cleaned: Recipient[] = []
+  for (const r of (recipients || []) as Recipient[]) {
+    const email = (r.email || '').trim().toLowerCase()
+    if (!email || !email.includes('@')) continue
+    if (seen.has(email)) {
+      duplicates++
+      continue
+    }
+    seen.add(email)
+    cleaned.push({ ...r, email })
+  }
+
+  // Skip addresses already in this campaign
+  const { data: existing } = await supabase
+    .from('email_recipients')
+    .select('email')
+    .eq('campaign_id', id)
+  const existingEmails = new Set((existing || []).map((r: { email: string }) => r.email.trim().toLowerCase()))
+
+  // Skip addresses that bounced or unsubscribed before
+  const blockedEmails = new Set<string>()
+  const emails = cleaned.map(r => r.email)
+  for (let i = 0; i < emails.length; i += 500) {
+    const { data: blocked } = await supabase
+      .from('blocked_emails')
+      .select('email')
+      .in('email', emails.slice(i, i + 500))
+    blocked?.forEach((b: { email: string }) => blockedEmails.add(b.email))
+  }
+
+  let blockedCount = 0
+  const toInsert = cleaned.filter(r => {
+    if (existingEmails.has(r.email)) {
+      duplicates++
+      return false
+    }
+    if (blockedEmails.has(r.email)) {
+      blockedCount++
+      return false
+    }
+    return true
+  })
+
+  const now = new Date().toISOString()
+  const recipientRows = toInsert.map((r: Recipient) => {
+    const invalid = r.verification_status === 'invalid'
+    return {
+      campaign_id: id,
+      email: r.email,
+      name: r.name || r.email.split('@')[0], // Use email prefix if name is empty
+      company: r.company || null,
+      status: invalid ? 'skipped' : 'pending',
+      error_message: invalid ? `Skipped: ${r.verification_reason || 'Invalid email'}` : null,
+      ...(r.verification_status ? {
+        verification_status: r.verification_status,
+        verification_reason: r.verification_reason || null,
+        verified_at: now,
+      } : {}),
+    }
+  })
 
   // Batch insert - 200 at a time
   const batchSize = 200
@@ -79,6 +136,8 @@ export async function POST(
   return NextResponse.json({
     success: true,
     count: insertedCount,
+    duplicates,
+    blocked: blockedCount,
     errors: errors.length > 0 ? errors : undefined
   })
 }
