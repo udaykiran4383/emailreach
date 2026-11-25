@@ -20,5 +20,7 @@ describe('isHardBounce', () => {
     expect(isHardBounce('Bounced: smtp; 550-5.1.1 The email account that you tried to reach does not exist')).toBe(true)
     expect(isHardBounce('Bounced: smtp;554 5.4.14 Hop count exceeded - possible mail loop')).toBe(false)
     expect(isHardBounce('552 5.2.2 The recipient mailbox is full')).toBe(false)
+    expect(isHardBounce('550 5.7.1 Service unavailable, Client host blocked using Customer Block list')).toBe(false)
+    expect(isHardBounce('550 5.1.1 User does not exist - <talent@ibo.com>')).toBe(true)
   })
 })

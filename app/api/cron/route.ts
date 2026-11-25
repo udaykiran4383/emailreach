@@ -6,6 +6,9 @@ import { scanInboxForBounces } from '@/lib/email/bounces'
 import { syncRepliesForUser } from '@/lib/email/reply-sync'
 import { recordCronHeartbeat } from '@/lib/health'
 
+// A Gmail call that never answers would otherwise hold the whole tick for minutes
+google.options({ timeout: 30_000 })
+
 // Admin client
 const supabaseAdmin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

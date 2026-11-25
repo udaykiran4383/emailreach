@@ -2,7 +2,8 @@
  * Finds open roles that fit you at companies in data/contacts_db.csv, using the public
  * job-board APIs of Greenhouse, Lever and Ashby (built for reading; no login, no scraping).
  *
- *   npx tsx --env-file=.env.local scripts/dev/find-jobs.ts [--all-locations]
+ *   npx tsx --env-file=.env.local scripts/dev/find-jobs.ts [--all-locations] [--yc <yc-oss all.json>]
+ *     [--startups [--max-team 50]]   only small YC startups (needs --yc)
  *
  * Output: data/jobs.csv (company, title, location, apply URL, …), best matches first,
  * and data/jobs.json (the same jobs with their descriptions).
@@ -20,12 +21,12 @@ const SENIOR_RE = /\b(staff|principal|director|head of|vp|vice president|manager
 const INDIA_RE = /india|bengaluru|bangalore|mumbai|pune|hyderabad|delhi|gurgaon|gurugram|noida|chennai|kolkata|ahmedabad/i
 const REMOTE_RE = /remote|anywhere|worldwide|global/i
 // "Remote" tied to another country isn't open to you
-const ELSEWHERE_RE = /united states|\busa?\b|america|canada|europe|\buk\b|united kingdom|brazil|latam|mexico|germany|france|spain|poland|netherlands|emea|singapore|australia|london|new york|san francisco|california|boston|seattle|austin|toronto|berlin|belo horizonte|curitiba|\b(pst|est|cet)\b/i
+const ELSEWHERE_RE = /korea|japan|tokyo|seoul|taipei|milan|paris|krakow|lausanne|latam|\beu\b|united states|\busa?\b|america|canada|europe|\buk\b|united kingdom|brazil|latam|mexico|germany|france|spain|poland|netherlands|emea|singapore|australia|london|new york|san francisco|california|boston|seattle|austin|toronto|berlin|belo horizonte|curitiba|\b(pst|est|cet)\b/i
 
 type Ats = 'greenhouse' | 'lever' | 'ashby'
 interface Board { ats: Ats; slug: string; fromSite?: boolean }
 interface Posting { title: string; location: string; url: string; ats: Ats; posted: string; text: string }
-interface Job { company: string; domain: string; title: string; location: string; url: string; ats: Ats; posted: string; fit: number; text: string }
+interface Job { size?: string; batch?: string; company: string; domain: string; title: string; location: string; url: string; ats: Ats; posted: string; fit: number; text: string }
 
 function parseCsv(text: string): Record<string, string>[] {
   const rows: string[][] = []
@@ -124,10 +125,18 @@ function boardBelongs(b: Board, postings: Posting[], company: string, domain: st
   return postings.some((p) => p.text.toLowerCase().includes(domain))
 }
 
+/** In India, or remote without being tied to another place ("Paris Office · Remote" is not). */
+function openToIndia(location: string, title: string): boolean {
+  if (INDIA_RE.test(location) || INDIA_RE.test(title)) return true
+  if (ELSEWHERE_RE.test(title) || !REMOTE_RE.test(location)) return false
+  if (/anywhere|worldwide|global/i.test(location)) return true
+  // Whatever is left after removing "remote" words must be nothing
+  return location.replace(/remote|fully|hybrid|[()\-·,|/]|\s+/gi, '') === ''
+}
+
 function fitScore(title: string, location: string, allLocations: boolean): number {
   if (!TITLE_RE.test(title) || NOT_ENGINEERING_RE.test(title)) return 0
-  const elsewhere = ELSEWHERE_RE.test(location) || US_STATE_RE.test(location)
-  if (!allLocations && !(INDIA_RE.test(location) || (REMOTE_RE.test(location) && !elsewhere))) return 0
+  if (!allLocations && !openToIndia(location, title)) return 0
   let score = 50
   if (/\b(applied ai|ai engineer|ml engineer|machine learning engineer|llm|genai|founding engineer)\b/i.test(title)) score += 30
   else if (/\b(backend|back-end|software engineer|sde|full[- ]?stack)\b/i.test(title)) score += 15
@@ -145,8 +154,26 @@ async function main() {
   // One entry per company (skip companies that already said no)
   const rows = parseCsv(fs.readFileSync(path.join('data', 'contacts_db.csv'), 'utf8'))
   const companies = new Map<string, string>()
+  const ycInfo = new Map<string, { size: string; batch: string }>()
+  // --startups: only small YC companies (≤ --max-team people, default 50), not the contacts DB
+  const startupsOnly = process.argv.includes('--startups')
+  const maxTeam = process.argv.includes('--max-team') ? Number(process.argv[process.argv.indexOf('--max-team') + 1]) : 50
   const declined = new Set(rows.filter((r) => ['rejection', 'not_hiring', 'unsubscribe'].includes(r.reply_category)).map((r) => r.domain))
-  for (const r of rows) if (r.domain && !declined.has(r.domain) && !companies.has(r.domain)) companies.set(r.domain, r.company)
+  if (!startupsOnly) for (const r of rows) if (r.domain && !declined.has(r.domain) && !companies.has(r.domain)) companies.set(r.domain, r.company)
+  // Optionally every active, hiring YC company too (yc-oss all.json)
+  const ycPath = process.argv.includes('--yc') ? process.argv[process.argv.indexOf('--yc') + 1] : ''
+  if (ycPath) {
+    for (const c of JSON.parse(fs.readFileSync(ycPath, 'utf8'))) {
+      if (c.status !== 'Active' || !c.isHiring || !c.website) continue
+      if (startupsOnly && (!c.team_size || c.team_size > maxTeam)) continue
+      let domain = ''
+      try { domain = new URL(c.website.startsWith('http') ? c.website : `https://${c.website}`).hostname.replace(/^www\./, '').toLowerCase() } catch { continue }
+      if (domain && !declined.has(domain) && !companies.has(domain)) {
+        companies.set(domain, c.name)
+        ycInfo.set(domain, { size: String(c.team_size || ''), batch: c.batch || '' })
+      }
+    }
+  }
   console.log(`${companies.size} companies to check`)
 
   const jobs: Job[] = []
@@ -175,7 +202,7 @@ async function main() {
         withBoard++
         for (const j of list) {
           const fit = fitScore(j.title, j.location, allLocations)
-          if (fit > 0) jobs.push({ company, domain, fit, title: j.title, location: j.location, url: j.url, ats: j.ats, posted: j.posted, text: j.text })
+          if (fit > 0) jobs.push({ ...ycInfo.get(domain), company, domain, fit, title: j.title, location: j.location, url: j.url, ats: j.ats, posted: j.posted, text: j.text })
         }
       }
       if (++checked % 100 === 0) {
@@ -187,7 +214,7 @@ async function main() {
   fs.writeFileSync(CACHE, JSON.stringify(cache))
 
   jobs.sort((a, b) => b.fit - a.fit || b.posted.localeCompare(a.posted))
-  const cols: (keyof Job)[] = ['fit', 'company', 'title', 'location', 'posted', 'url', 'ats', 'domain']
+  const cols: (keyof Job)[] = ['fit', 'size', 'batch', 'company', 'title', 'location', 'posted', 'url', 'ats', 'domain']
   fs.writeFileSync(path.join('data', 'jobs.csv'), [cols.join(','), ...jobs.map((j) => cols.map((c) => csvCell(j[c])).join(','))].join('\n') + '\n')
   // Full descriptions, for prepare-applications.ts
   fs.writeFileSync(path.join('data', 'jobs.json'), JSON.stringify(jobs, null, 2))

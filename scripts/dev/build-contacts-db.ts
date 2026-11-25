@@ -225,7 +225,7 @@ async function main() {
     const saidNo = /^(rejection|not_hiring|unsubscribe|auto_reply_other)$/.test(r.reply_category)
     r.sendable = SENDABLE.has(r.verification) && r.outreach !== 'bounced' && !saidNo ? 'yes' : 'no'
   }
-  const roleRank = ['ceo', 'cto', 'tech_lead', 'hr', 'other']
+  const roleRank = ['ceo', 'cto', 'board', 'tech_lead', 'manager', 'hr', 'other']
   const rows = [...db.values()].sort(
     (a, b) =>
       Number(b.sendable === 'yes') - Number(a.sendable === 'yes') ||

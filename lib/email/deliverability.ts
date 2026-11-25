@@ -261,7 +261,8 @@ export async function releaseSendSlot(userId: string): Promise<void> {
     .eq('user_id', userId)
 }
 
-const SERVER_FAULT = /\b5\.4\.\d+\b|\b4\.\d\.\d+\b|hop count|mail loop|loop detected|mailbox (is )?full|quota|over ?quota|5\.2\.2|temporar|try again later|timed? ?out/i
+// 5.7.x: the recipient's own policy or blocklist refused the message; says nothing about the address
+const SERVER_FAULT = /\b5\.7\.\d+\b|rejected by organization policy|\b5\.4\.\d+\b|\b4\.\d\.\d+\b|hop count|mail loop|loop detected|mailbox (is )?full|quota|over ?quota|5\.2\.2|temporar|try again later|timed? ?out/i
 
 /** True for bounces that mean the address is bad (no such user/domain), not a server problem. */
 export function isHardBounce(errorMessage: string | null | undefined): boolean {

@@ -9,8 +9,8 @@ import { domainSearch, emailFinder, isHunterEnabled, type HunterEmail } from './
  * Guessed addresses are only marked 'safe' when a deep check confirmed the mailbox.
  */
 
-export type Role = 'hr' | 'tech_lead' | 'ceo' | 'cto'
-export const ALL_ROLES: Role[] = ['hr', 'tech_lead', 'ceo', 'cto']
+export type Role = 'hr' | 'tech_lead' | 'ceo' | 'cto' | 'board' | 'manager'
+export const ALL_ROLES: Role[] = ['hr', 'tech_lead', 'ceo', 'cto', 'board', 'manager']
 
 export interface Contact {
   email: string
@@ -43,6 +43,8 @@ export interface FindContactsOptions {
   roles: Role[] // empty = all (including 'other')
   verify: boolean
   guessPatterns: boolean
+  /** Return people found on the site even when no email pattern is known (email is a placeholder the caller replaces) */
+  namesOnly?: boolean
   deadline: number // epoch ms
 }
 
@@ -63,6 +65,9 @@ const ROLE_RULES: { role: Role; pattern: RegExp }[] = [
   { role: 'ceo', pattern: /\b(chief executive|ceo|managing director)\b/i },
   { role: 'hr', pattern: /\b(hr|hrbp|human resources?|talent|recruit\w*|people (ops|operations|partner|team|lead|manager)|head of people|hiring|chro)\b/i },
   { role: 'tech_lead', pattern: /\b(tech(nical)? lead|engineering manager|lead (software |backend |frontend |full[- ]?stack )?(engineer|developer)|principal (software )?engineer|staff (software )?engineer|architect|director of engineering|engineering director|head of (technology|tech|product engineering))\b/i },
+  // Board of directors: chair, independent / non-executive / whole-time directors, or a bare "Director" on a board page
+  { role: 'board', pattern: /(\bboard\b|\bchair(man|person|woman)?\b|\b(independent|non-?executive|executive|whole[- ]time|nominee|additional) director\b|^\s*directors?\s*$)/i },
+  { role: 'manager', pattern: /\b(general manager|(project|program|programme|product|operations|delivery|department|business|regional|plant|senior|sr\.?) manager|manager|head of|vp|vice president|director)\b/i },
 ]
 const FOUNDER = /\bco-?founder\b|\bfounder\b/i
 
@@ -226,7 +231,7 @@ export function extractPeopleFromHtml(html: string, sourceUrl?: string): Person[
 
 const SOCIAL_HOSTS = /(^|\.)(linkedin\.com|facebook\.com|twitter\.com|x\.com|instagram\.com|github\.com|glassdoor\.\w+|crunchbase\.com|angel\.co|wellfound\.com)$/i
 const SECOND_LEVEL = new Set(['co', 'com', 'org', 'net', 'ac', 'edu', 'gov', 'ltd', 'plc', 'gen', 'firm', 'ind', 'res'])
-const PEOPLE_PAGE = /about|team|people|leadership|management|founders|our-team|company|careers|jobs|contact|\bhr\b/i
+const PEOPLE_PAGE = /about|team|people|leader|management|founders|our-team|company|careers|jobs|contact|\bhr\b|board|directors?|governance|key-?managerial/i
 
 export function normalizeCompanyInput(input: string): { domain: string; homepage: string } | { error: string } {
   const raw = input.trim()
@@ -271,7 +276,7 @@ function findPeopleLinks(html: string, base: URL, domain: string): string[] {
     seen.add(key)
     // Leadership/team pages first: they name the CEO/CTO
     const haystack = `${target.pathname} ${text}`
-    const score = /team|leadership|people|founders|management/i.test(haystack) ? 3 : /about|company/i.test(haystack) ? 2 : 1
+    const score = /team|leader|people|founders|management|board|directors?|key-?managerial/i.test(haystack) ? 3 : /about|company/i.test(haystack) ? 2 : 1
     links.push({ url: key, score })
   }
   return links.sort((a, b) => b.score - a.score).map((l) => l.url)
@@ -330,7 +335,7 @@ async function withDeadline<T>(promise: Promise<T>, deadline: number, fallback: 
 const HR_INBOX = /^(hr|careers?|jobs|talent|recruit\w*|people|hiring|join|joinus|work|resumes?|cv)$/
 const CEO_INBOX = /^(ceo|founders?|cofounders?)$/
 const SOURCE_RANK: Record<Contact['source'], number> = { website: 3, hunter: 2, pattern: 1 }
-const ROLE_ORDER: Record<Contact['role'], number> = { ceo: 0, cto: 1, tech_lead: 2, hr: 3, other: 4 }
+const ROLE_ORDER: Record<Contact['role'], number> = { ceo: 0, cto: 1, board: 2, tech_lead: 3, manager: 4, hr: 5, other: 6 }
 
 export async function findCompanyContacts(
   input: string,
@@ -487,6 +492,9 @@ export async function findCompanyContacts(
         if (found.email) {
           contacts.push({ ...personBase, email: found.email, source: 'hunter', confidence: Math.min(100, found.score), verification: mapHunterStatus(found.verificationStatus) })
         }
+      } else if (options.namesOnly && person.lastName) {
+        // Caller builds and confirms its own candidate addresses (e.g. against the mail server); just hand over the person
+        contacts.push({ ...personBase, email: `${normalizeNamePart(person.firstName)}.${normalizeNamePart(person.lastName)}@${domain}`, source: 'pattern', confidence: 30 })
       } else if (options.verify && guessedPeople < 10) {
         // No known pattern: try the 3 most common and keep only confirmed mailboxes
         guessedPeople++

@@ -18,7 +18,23 @@ const supabaseAdmin = createClient(
 /**
  * Check if an email is in the blocklist (previously bounced or invalid)
  */
+// Domains that must never be emailed (e.g. the user's current employer).
+// Extend with a comma-separated BLOCKED_DOMAINS env var.
+const BLOCKED_DOMAINS = new Set(
+  ['smbcatalyst.com', 'smbcatalyst.in', ...(process.env.BLOCKED_DOMAINS || '').split(',')]
+    .map((d) => d.trim().toLowerCase())
+    .filter(Boolean)
+)
+
+function isBlockedDomain(email: string): boolean {
+  const domain = email.toLowerCase().trim().split('@')[1] || ''
+  return [...BLOCKED_DOMAINS].some((d) => domain === d || domain.endsWith(`.${d}`))
+}
+
 async function isEmailBlocked(email: string): Promise<{ blocked: boolean; reason?: string }> {
+  if (isBlockedDomain(email)) {
+    return { blocked: true, reason: 'Blocked domain (current employer)' }
+  }
   try {
     const { data, error } = await supabaseAdmin
       .from('blocked_emails')

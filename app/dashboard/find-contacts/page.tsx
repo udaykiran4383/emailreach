@@ -44,6 +44,8 @@ const ROLE_OPTIONS: { id: Role; label: string }[] = [
   { id: 'tech_lead', label: 'Tech Leads' },
   { id: 'cto', label: 'CTO' },
   { id: 'ceo', label: 'CEO' },
+  { id: 'board', label: 'Board' },
+  { id: 'manager', label: 'Managers' },
 ]
 
 const ROLE_BADGES: Record<Role | 'other', { label: string; className: string }> = {
@@ -51,6 +53,8 @@ const ROLE_BADGES: Record<Role | 'other', { label: string; className: string }> 
   tech_lead: { label: 'Tech Lead', className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' },
   cto: { label: 'CTO', className: 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300' },
   ceo: { label: 'CEO', className: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' },
+  board: { label: 'Board', className: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' },
+  manager: { label: 'Manager', className: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300' },
   other: { label: 'Other', className: 'bg-muted text-muted-foreground' },
 }
 
@@ -75,7 +79,7 @@ const statusOf = (c: Contact): VerificationStatus | 'unknown' => c.verification?
 
 export default function FindContactsPage() {
   const [companiesText, setCompaniesText] = useState('')
-  const [roles, setRoles] = useState<Set<Role>>(new Set(['hr', 'tech_lead', 'cto', 'ceo']))
+  const [roles, setRoles] = useState<Set<Role>>(new Set(['hr', 'tech_lead', 'cto', 'ceo', 'board', 'manager']))
   const [guessPatterns, setGuessPatterns] = useState(true)
   const [verify, setVerify] = useState(true)
   const [running, setRunning] = useState(false)

@@ -40,7 +40,7 @@ interface YcCompany {
 }
 
 const AI_TAGS = new Set(['Artificial Intelligence', 'AI', 'Generative AI', 'Machine Learning', 'AI Assistant', 'Developer Tools', 'B2B', 'SaaS', 'Infrastructure'])
-const KEEP_ROLES = new Set(['ceo', 'cto', 'tech_lead', 'hr'])
+const KEEP_ROLES = new Set(['ceo', 'cto', 'tech_lead', 'hr', 'board', 'manager'])
 
 let lastYcFetch = 0
 /** Founders listed on the company's public YC page (robots.txt allows /companies/<slug>). */
@@ -160,9 +160,15 @@ async function main() {
           roles: [],
           verify: false,
           guessPatterns: true,
+          namesOnly: true,
           deadline: Date.now() + PER_COMPANY_MS,
         })
-        const people = contacts.filter((p: Contact) => KEEP_ROLES.has(p.role) || /founder/i.test(p.title))
+        const ROLE_RANK: Record<string, number> = { ceo: 0, cto: 1, board: 2, tech_lead: 3, manager: 4, hr: 5 }
+        // Leadership first; capped so long manager lists don't flood the mail-server probes
+        const people = contacts
+          .filter((p: Contact) => KEEP_ROLES.has(p.role) || /founder/i.test(p.title))
+          .sort((a: Contact, b: Contact) => (ROLE_RANK[a.role] ?? 9) - (ROLE_RANK[b.role] ?? 9))
+          .slice(0, 14)
         // Founders from YC, unless the website already gave us that person
         for (const f of await ycFounders(c.slug)) {
           const { first, last } = splitFull(f.name)

@@ -3,7 +3,7 @@
  * each company's mail server which candidate address exists (no email is sent).
  * Also finds recruiting inboxes (careers@, hr@, …) at the same companies.
  *
- *   npx tsx --env-file=.env.local scripts/dev/find-emails.ts [--limit-domains N]
+ *   npx tsx --env-file=.env.local scripts/dev/find-emails.ts [--limit-domains N] [--in people.csv] [--out found.csv]
  *
  * Results are cached in data/.smtp-cache.json, so re-runs continue where they stopped.
  * Output: data/contacts_found.csv (only server-confirmed addresses), ready for launch-campaign.ts.
@@ -74,11 +74,13 @@ function patternOf(guess: string, first: string, last: string): string | null {
 async function main() {
   const args = process.argv.slice(2)
   const limit = args.includes('--limit-domains') ? Number(args[args.indexOf('--limit-domains') + 1]) : Infinity
+  const inFile = args.includes('--in') ? args[args.indexOf('--in') + 1] : path.join('data', 'contacts_missing_email.csv')
+  const outFile = args.includes('--out') ? args[args.indexOf('--out') + 1] : path.join('data', 'contacts_found.csv')
 
   const cache: Cache = fs.existsSync(CACHE) ? JSON.parse(fs.readFileSync(CACHE, 'utf8')) : { domains: {}, emails: {} }
   const save = () => fs.writeFileSync(CACHE, JSON.stringify(cache))
 
-  const people = parseCsv(fs.readFileSync('data/contacts_missing_email.csv', 'utf8')).filter((p) => p.company_domain && p.name)
+  const people = parseCsv(fs.readFileSync(inFile, 'utf8')).filter((p) => p.company_domain && p.name)
   const byDomain = new Map<string, Record<string, string>[]>()
   for (const p of people) {
     const d = p.company_domain.toLowerCase().replace(/^www\./, '')
@@ -185,11 +187,11 @@ async function main() {
   const fresh = found.filter((f) => !skip.has(f.email) && !seen.has(f.email) && seen.add(f.email))
 
   const cols = ['email', 'name', 'first_name', 'title', 'role', 'company', 'company_domain', 'email_source']
-  fs.writeFileSync(path.join('data', 'contacts_found.csv'), [cols.join(','), ...fresh.map((r) => cols.map((c) => csvCell(r[c])).join(','))].join('\n') + '\n')
+  fs.writeFileSync(outFile, [cols.join(','), ...fresh.map((r) => cols.map((c) => csvCell(r[c])).join(','))].join('\n') + '\n')
 
   const roles = new Map<string, number>()
   for (const f of fresh) roles.set(f.role, (roles.get(f.role) || 0) + 1)
-  console.log(`\nConfirmed ${found.length} addresses (${fresh.length} new) → data/contacts_found.csv`)
+  console.log(`\nConfirmed ${found.length} addresses (${fresh.length} new) → ${outFile}`)
   console.log('By role:', Object.fromEntries(roles))
 }
 
